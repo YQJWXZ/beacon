@@ -1,4 +1,4 @@
-package main
+package notify
 
 import (
 	"bytes"
@@ -334,5 +334,5 @@ func (n *Notifier) snoozeLink(p AlertmanagerPayload) string {
 	if host == "" || alertName == "" {
 		return ""
 	}
-	return snoozeURL(n.publicURL, n.snoozeKey, host, alertName, time.Now().Add(24*time.Hour))
+	return SnoozeURL(n.publicURL, n.snoozeKey, host, alertName, time.Now().Add(24*time.Hour))
 }

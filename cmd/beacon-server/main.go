@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/yqjwxz/beacon/internal/notify"
 )
 
 func main() {
@@ -59,9 +61,9 @@ func main() {
 	defer events.Close()
 
 	snoozeKey := deriveSnoozeKey(*snoozeSecret, *enrollToken)
-	var notifier *Notifier
+	var notifier *notify.Notifier
 	if *feishuWebhook != "" {
-		notifier = NewNotifier(*feishuWebhook, *feishuSecret, *vmuiURL, *publicURL, snoozeKey)
+		notifier = notify.NewNotifier(*feishuWebhook, *feishuSecret, *vmuiURL, *publicURL, snoozeKey)
 		log.Info("feishu notifications enabled", "signed", *feishuSecret != "")
 	} else {
 		log.Warn("no feishu webhook configured: alert deliveries will return 503")

@@ -30,6 +30,8 @@ Usage:
   beacon agent enroll   -server url -token token [-config path]
   beacon transport test [-config path]
   beacon audit fw|ports|exposure [-config path] [--json]
+  beacon notify test feishu [-webhook url] [-secret secret]
+|ports|exposure [-config path] [--json]
 
 Flags:
   -config         path to YAML config (default: none, built-in defaults)
@@ -53,6 +55,8 @@ func main() {
 		err = cmdTransport(os.Args[2:])
 	case "audit":
 		err = cmdAudit(os.Args[2:])
+	case "notify":
+		err = cmdNotify(os.Args[2:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:

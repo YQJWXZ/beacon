@@ -11,13 +11,14 @@ import (
 
 	"github.com/prometheus/prometheus/prompb"
 
+	"github.com/yqjwxz/beacon/internal/notify"
 	"github.com/yqjwxz/beacon/internal/promwrite"
 )
 
 type Server struct {
 	store       *Store
 	events      *EventStore
-	notifier    *Notifier
+	notifier    *notify.Notifier
 	vmURL       string
 	enrollToken string
 	amURL       string
@@ -31,7 +32,7 @@ type ServerOptions struct {
 	VMURL       string
 	EnrollToken string
 	AMURL       string
-	Notifier    *Notifier
+	Notifier    *notify.Notifier
 	SnoozeKey   []byte
 }
 

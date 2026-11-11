@@ -166,10 +166,19 @@ func (p *Ports) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	public := 0
+	seen := map[string]bool{}
 	for _, l := range listens {
 		if l.Public() {
 			public++
 		}
+		// Several sockets can share the same label set (SO_REUSEPORT, IPv4 and
+		// IPv6 wildcard). Emitting duplicates makes Prometheus reject the
+		// whole scrape, so collapse them here.
+		key := l.Proto + "|" + l.Addr + "|" + strconv.Itoa(l.Port) + "|" + l.Comm + "|" + strconv.Itoa(l.UID)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		ch <- prometheus.MustNewConstMetric(p.dListen, prometheus.GaugeValue, 1,
 			l.Proto, l.Addr, strconv.Itoa(l.Port), l.Comm, strconv.Itoa(l.UID))
 	}

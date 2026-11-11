@@ -65,6 +65,14 @@ docker compose -f deploy/docker-compose.yml up -d
 
 链路：`vmalert → Alertmanager → beacon-server /hooks/alert → 飞书卡片`。
 
+自检（发一张真实卡片，验证 webhook、签名和渲染）：
+
+```bash
+BEACON_FEISHU_WEBHOOK='https://open.feishu.cn/open-apis/bot/v2/hook/xxx' \
+BEACON_FEISHU_SECRET='...' \
+./bin/beacon notify test feishu
+```
+
 卡片包含：级别色条、主机、摘要、证据（JSON）、开始时间，以及两个按钮——
 「查看曲线」打开预置好查询的 vmui，「静默 1 小时」调用 Alertmanager API 创建 silence。
 

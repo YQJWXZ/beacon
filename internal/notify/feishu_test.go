@@ -1,11 +1,9 @@
-package main
+package notify
 
 import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -58,7 +56,7 @@ func TestSendRendersCard(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := NewNotifier(srv.URL, "shh", "http://vm:8428/vmui", "http://center:8080", []byte("k"))
+	n := NewNotifier(srv.URL, "shh", "http://vm:8428", "http://center:8080", []byte("k"))
 	suppressed, err := n.Send(context.Background(), samplePayload("firing"))
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +126,7 @@ func TestResolvedCardIsGreen(t *testing.T) {
 	}
 }
 
-func TestSnoozeLinkRoundTrip(t *testing.T) {
+func TestCreateSilence(t *testing.T) {
 	var silence map[string]any
 	am := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&silence)
@@ -136,29 +134,8 @@ func TestSnoozeLinkRoundTrip(t *testing.T) {
 	}))
 	defer am.Close()
 
-	key := []byte("snooze-key")
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := NewServer(nil, nil, ServerOptions{AMURL: am.URL, SnoozeKey: key}, log)
-	ts := httptest.NewServer(srv.Routes())
-	defer ts.Close()
-
-	link := snoozeURL(ts.URL, key, "h1", "BeaconDiskFull", time.Now().Add(time.Hour))
-	u, err := url.Parse(link)
-	if err != nil {
+	if err := CreateSilence(context.Background(), am.Client(), am.URL, "h1", "BeaconDiskFull", time.Hour); err != nil {
 		t.Fatal(err)
-	}
-	// snoozeURL prepends the base, so reuse only the path and query.
-	resp, err := http.Get(ts.URL + u.RequestURI())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status = %d: %s", resp.StatusCode, body)
-	}
-	if silence == nil {
-		t.Fatal("alertmanager was not called")
 	}
 	matchers := silence["matchers"].([]any)
 	if len(matchers) != 2 {
@@ -166,63 +143,31 @@ func TestSnoozeLinkRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSnoozeRejectsBadSignature(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := NewServer(nil, nil, ServerOptions{AMURL: "http://127.0.0.1:1", SnoozeKey: []byte("k")}, log)
-	ts := httptest.NewServer(srv.Routes())
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/snooze?host=h1&alert=X&exp=9999999999&sig=deadbeef")
+func TestSnoozeURLRoundTrip(t *testing.T) {
+	key := []byte("k")
+	exp := time.Now().Add(time.Hour).Unix()
+	link := SnoozeURL("http://center:8080", key, "h1", "BeaconDiskFull", time.Unix(exp, 0))
+	u, err := url.Parse(link)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", resp.StatusCode)
+	q := u.Query()
+	if !VerifySnooze(key, q.Get("host"), q.Get("alert"), exp, q.Get("sig")) {
+		t.Fatal("valid link rejected")
+	}
+	if VerifySnooze([]byte("other"), "h1", "BeaconDiskFull", exp, q.Get("sig")) {
+		t.Fatal("wrong key accepted")
+	}
+	if VerifySnooze(key, "h2", "BeaconDiskFull", exp, q.Get("sig")) {
+		t.Fatal("tampered host accepted")
 	}
 }
 
-func TestAlertHandlerDelivers(t *testing.T) {
-	var received bool
-	fs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		received = true
-		_, _ = w.Write([]byte(`{"code":0}`))
-	}))
-	defer fs.Close()
-
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	n := NewNotifier(fs.URL, "", "", "", nil)
-	srv := NewServer(nil, nil, ServerOptions{Notifier: n}, log)
-	ts := httptest.NewServer(srv.Routes())
-	defer ts.Close()
-
-	body, _ := json.Marshal(samplePayload("firing"))
-	resp, err := http.Post(ts.URL+"/hooks/alert", "application/json", strings.NewReader(string(body)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	if !received {
-		t.Fatal("feishu did not receive the card")
-	}
-}
-
-func TestAlertHandlerWithoutWebhook(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := NewServer(nil, nil, ServerOptions{}, log)
-	ts := httptest.NewServer(srv.Routes())
-	defer ts.Close()
-
-	body, _ := json.Marshal(samplePayload("firing"))
-	resp, err := http.Post(ts.URL+"/hooks/alert", "application/json", strings.NewReader(string(body)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", resp.StatusCode)
+func TestSnoozeExpires(t *testing.T) {
+	key := []byte("k")
+	exp := time.Now().Add(-time.Minute).Unix()
+	sig := snoozeSignature(key, "h1", "X", exp)
+	if VerifySnooze(key, "h1", "X", exp, sig) {
+		t.Fatal("expired link accepted")
 	}
 }

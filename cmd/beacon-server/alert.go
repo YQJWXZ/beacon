@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+
+	"github.com/yqjwxz/beacon/internal/notify"
 )
 
 // handleAlert receives Alertmanager webhook deliveries and forwards them to
 // Feishu. It is unauthenticated by design: Alertmanager runs inside the same
 // compose network, and the endpoint only renders notifications.
 func (s *Server) handleAlert(w http.ResponseWriter, r *http.Request) {
-	var p AlertmanagerPayload
+	var p notify.AlertmanagerPayload
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&p); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
