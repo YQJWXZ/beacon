@@ -2,6 +2,7 @@ package flow
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -152,38 +153,85 @@ func TestDetectSuspiciousDport(t *testing.T) {
 	}
 }
 
-func TestDetectEgressBurstNeedsWarmup(t *testing.T) {
-	hot := EgressContext{BPS: 10 << 20, Expected: 100 << 10, Samples: 1, Multiplier: 3}
+func TestDetectEgressBurstNeedsStreak(t *testing.T) {
+	hot := EgressContext{BPS: 10 << 20, P95: 100 << 10, Score: 10, Samples: 30, Streak: 1}
 	if f := Detect(NewSample(), hot); len(f) != 0 {
-		t.Fatal("must not fire before warmup")
+		t.Fatal("one sample must not fire")
 	}
-	warm := EgressContext{BPS: 10 << 20, Expected: 100 << 10, Samples: 10, Multiplier: 3}
-	f := Detect(NewSample(), warm)
+	hot.Streak = 3
+	f := Detect(NewSample(), hot)
 	if len(f) != 1 || f[0].Kind != "egress_burst" {
 		t.Fatalf("findings = %+v", f)
 	}
 }
 
-func TestBaselineLearnAndPersist(t *testing.T) {
-	dir := t.TempDir()
-	path := dir + "/baseline.json"
+func TestBaselineQuantiles(t *testing.T) {
+	b := LoadBaseline("")
+	at := time.Date(2026, 11, 11, 3, 0, 0, 0, time.UTC)
+	for i := 0; i < 100; i++ {
+		b.Observe(at, float64(1_000_000+i*10_000)) // 1.0MB/s .. 1.99MB/s
+	}
+	p50, p95, mad, n := b.Stats(at)
+	if n != 100 {
+		t.Fatalf("count = %d", n)
+	}
+	if p50 < 1_400_000 || p50 > 1_600_000 {
+		t.Errorf("p50 = %f", p50)
+	}
+	if p95 < 1_800_000 || p95 > 1_950_000 {
+		t.Errorf("p95 = %f", p95)
+	}
+	if mad <= 0 {
+		t.Errorf("mad = %f", mad)
+	}
+
+	if score, _, _ := b.Score(at, 1_200_000); score != 0 {
+		t.Errorf("normal value scored %f, want 0", score)
+	}
+	if score, _, _ := b.Score(at, 5_000_000); score <= 3 {
+		t.Errorf("spike scored %f, want > 3", score)
+	}
+}
+
+func TestBaselineColdStart(t *testing.T) {
+	b := LoadBaseline("")
+	at := time.Now()
+	b.Observe(at, 1000)
+	if score, _, n := b.Score(at, 1<<30); score != 0 || n != 1 {
+		t.Fatalf("cold slot must not score: score=%f n=%d", score, n)
+	}
+}
+
+func TestBaselinePersist(t *testing.T) {
+	path := t.TempDir() + "/baseline.json"
 	b := LoadBaseline(path)
 	at := time.Date(2026, 11, 11, 3, 0, 0, 0, time.UTC)
-	for i := 0; i < 10; i++ {
-		b.Observe(at, 1000)
-	}
-	if got := b.Expected(at); got < 900 || got > 1100 {
-		t.Fatalf("expected ~1000, got %f", got)
+	for i := 0; i < 30; i++ {
+		b.Observe(at, 5000)
 	}
 	if err := b.Save(); err != nil {
 		t.Fatal(err)
 	}
-
 	b2 := LoadBaseline(path)
-	if got := b2.Expected(at); got < 900 || got > 1100 {
-		t.Fatalf("reloaded baseline = %f", got)
+	if _, _, _, n := b2.Stats(at); n != 30 {
+		t.Fatalf("reloaded count = %d", n)
 	}
-	if b2.Samples(at) != 10 {
-		t.Fatalf("samples = %d", b2.Samples(at))
+}
+
+func TestBaselineIgnoresOldVersion(t *testing.T) {
+	path := t.TempDir() + "/baseline.json"
+	if err := os.WriteFile(path, []byte(`{"version":1,"slots":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := LoadBaseline(path)
+	if _, _, _, n := b.Stats(time.Now()); n != 0 {
+		t.Fatalf("old model should be discarded, got %d samples", n)
+	}
+}
+
+func TestEgressContextFloor(t *testing.T) {
+	c := EgressContext{BPS: 1000, P95: 100, Score: 50, Samples: 100, Streak: 9}
+	if c.Anomalous() {
+		t.Fatal("tiny absolute rates must not alert")
 	}
 }

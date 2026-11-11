@@ -32,6 +32,9 @@ Usage:
   beacon audit fw|ports|exposure [-config path] [--json]
   beacon notify test feishu [-webhook url] [-secret secret]
   beacon flow          [-config path] [-top N] [--json]
+  beacon top           [-by cpu|mem] [-n 10] [-interval 1s] [--json]
+  beacon rule test     [-file deploy/vmalert/rules.yml] [--json]
+|mem] [-n 10] [-interval 1s] [--json]
 |ports|exposure [-config path] [--json]
 
 Flags:
@@ -47,7 +50,7 @@ func main() {
 	var err error
 	switch os.Args[1] {
 	case "version":
-		fmt.Printf("beacon %s (commit %s, built %s)\n", version.Version, version.Commit, version.Date)
+		err = cmdVersion(os.Args[2:])
 	case "config":
 		err = cmdConfig(os.Args[2:])
 	case "agent":
@@ -60,6 +63,10 @@ func main() {
 		err = cmdNotify(os.Args[2:])
 	case "flow":
 		err = cmdFlow(os.Args[2:])
+	case "top":
+		err = cmdTop(os.Args[2:])
+	case "rule":
+		err = cmdRule(os.Args[2:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -122,6 +129,7 @@ func cmdConfig(args []string) error {
 	}
 	fs := flag.NewFlagSet("config check", flag.ContinueOnError)
 	path := fs.String("config", "", "path to YAML config")
+	asJSON := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -129,8 +137,12 @@ func cmdConfig(args []string) error {
 	if err != nil {
 		return err
 	}
+	warns := cfg.Warnings()
+	if *asJSON {
+		return emitJSON(map[string]any{"valid": true, "warnings": warns})
+	}
 	fmt.Print(cfg.Redacted())
-	for _, w := range cfg.Warnings() {
+	for _, w := range warns {
 		fmt.Println("warning:", w)
 	}
 	fmt.Println("ok: configuration is valid")
@@ -288,6 +300,7 @@ func cmdAgentRun(args []string) error {
 func cmdAgentCheck(args []string) error {
 	fs := flag.NewFlagSet("agent check", flag.ContinueOnError)
 	path := fs.String("config", "", "path to YAML config")
+	asJSON := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -305,19 +318,32 @@ func cmdAgentCheck(args []string) error {
 	defer cancel()
 	a.Probe(ctx)
 
-	fmt.Printf("host: %s\n", cfg.Agent.Host)
-	if os.Geteuid() != 0 {
-		fmt.Println("privileges: not root (firewall and process ownership checks will be limited)")
-	} else {
-		fmt.Println("privileges: root")
-	}
-
 	caps := a.Capabilities().Snapshot()
 	keys := make([]string, 0, len(caps))
 	for k := range caps {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+
+	root := os.Geteuid() == 0
+	warns := cfg.Warnings()
+
+	if *asJSON {
+		return emitJSON(map[string]any{
+			"host":         cfg.Agent.Host,
+			"root":         root,
+			"capabilities": caps,
+			"warnings":     warns,
+		})
+	}
+
+	fmt.Printf("host: %s\n", cfg.Agent.Host)
+	if !root {
+		fmt.Println("privileges: not root (firewall and process ownership checks will be limited)")
+	} else {
+		fmt.Println("privileges: root")
+	}
+
 	fmt.Println("capabilities:")
 	for _, k := range keys {
 		mark := "missing"
@@ -327,11 +353,26 @@ func cmdAgentCheck(args []string) error {
 		fmt.Printf("  %-12s %s\n", k, mark)
 	}
 
-	if warns := cfg.Warnings(); len(warns) > 0 {
+	if len(warns) > 0 {
 		fmt.Println("warnings:")
 		for _, w := range warns {
 			fmt.Println("  -", w)
 		}
 	}
+	return nil
+}
+
+func cmdVersion(args []string) error {
+	fs := flag.NewFlagSet("version", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *asJSON {
+		return emitJSON(map[string]string{
+			"version": version.Version, "commit": version.Commit, "built": version.Date,
+		})
+	}
+	fmt.Printf("beacon %s (commit %s, built %s)\n", version.Version, version.Commit, version.Date)
 	return nil
 }

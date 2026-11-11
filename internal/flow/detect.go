@@ -1,119 +1,9 @@
 package flow
 
 import (
-	"encoding/json"
 	"math"
-	"os"
-	"path/filepath"
 	"sort"
-	"sync"
-	"time"
 )
-
-// Baseline is a per-hour-of-week EWMA of egress bandwidth. It is deliberately
-// simple: an approximate "what is normal for this hour" beats a static
-// threshold, and M5 upgrades it to quantiles over a 7-day window.
-type Baseline struct {
-	mu     sync.Mutex
-	path   string
-	Slots  [168]float64 `json:"slots"`
-	Counts [168]int     `json:"counts"`
-	dirty  int
-}
-
-func LoadBaseline(path string) *Baseline {
-	b := &Baseline{path: path}
-	if path == "" {
-		return b
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return b
-	}
-	_ = json.Unmarshal(data, b)
-	return b
-}
-
-func slotOf(t time.Time) int {
-	return int(t.Weekday())*24 + t.Hour()
-}
-
-// Expected returns the learned rate for this hour of week.
-func (b *Baseline) Expected(t time.Time) float64 {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.Slots[slotOf(t)]
-}
-
-// Samples returns how many observations this slot has seen.
-func (b *Baseline) Samples(t time.Time) int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.Counts[slotOf(t)]
-}
-
-// Observe folds one rate into the slot. Alpha shrinks after warmup so a single
-// spike does not become the new normal.
-func (b *Baseline) Observe(t time.Time, v float64) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	i := slotOf(t)
-	alpha := 0.2
-	if b.Counts[i] > 20 {
-		alpha = 0.05
-	}
-	if b.Counts[i] == 0 {
-		b.Slots[i] = v
-	} else {
-		b.Slots[i] = (1-alpha)*b.Slots[i] + alpha*v
-	}
-	b.Counts[i]++
-	b.dirty++
-}
-
-// Save persists the model; callers should batch this, not run it per sample.
-func (b *Baseline) Save() error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.path == "" || b.dirty == 0 {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(b.path), 0o700); err != nil {
-		return err
-	}
-	data, err := json.Marshal(b)
-	if err != nil {
-		return err
-	}
-	tmp := b.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, b.path); err != nil {
-		return err
-	}
-	b.dirty = 0
-	return nil
-}
-
-// EgressContext carries the current rate and what the model expects.
-type EgressContext struct {
-	BPS        float64
-	Expected   float64
-	Samples    int
-	Multiplier float64
-}
-
-// Anomalous reports whether the rate is far above the learned baseline. It
-// requires warmup and an absolute floor so an idle host does not alert on
-// 20 KB/s of background traffic.
-func (c EgressContext) Anomalous() bool {
-	if c.Samples < 3 || c.Expected <= 0 || c.Multiplier <= 0 {
-		return false
-	}
-	floor := math.Max(c.Expected*c.Multiplier, c.Expected+1<<20)
-	return c.BPS > floor
-}
 
 // Finding is one detector hit, ready to become an event.
 type Finding struct {
@@ -198,11 +88,12 @@ func Detect(s *Sample, egress EgressContext) []Finding {
 	if egress.Anomalous() {
 		out = append(out, Finding{
 			Kind: "egress_burst", Severity: "P1",
-			Score: egress.BPS / egress.Expected,
+			Score: egress.Score,
 			Evidence: map[string]any{
 				"observed_bps": egress.BPS,
-				"baseline_bps": egress.Expected,
-				"multiplier":   egress.Multiplier,
+				"p95_bps":      egress.P95,
+				"score":        math.Round(egress.Score*100) / 100,
+				"streak":       egress.Streak,
 			},
 		})
 	}

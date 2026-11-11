@@ -95,6 +95,7 @@ M1 完成：传输抽象、WAL 存储转发、注册凭证、`beacon-server` 网
 M2 完成：防火墙四后端解析与 diff、端口审计、暴露面模型、事件入库（SQLite）、`beacon audit` CLI。
 M3 完成：vmalert 规则集、Alertmanager 路由/抑制、飞书卡片、去重限流、签名静默链接。
 M4 完成：conntrack 采样、有界聚合、扫描/爆破/可疑出站/出站突增检测、`beacon flow` CLI。
+M5 完成：P95+MAD 基线、`beacon top`、`beacon rule test`、runbook/安装/验收文档、Grafana 决策（暂不引入）。
 
 实测：
 - 断网 60 秒缓冲 51 KB，恢复后 3 秒排空，窗口内心跳样本完整补传
@@ -108,6 +109,10 @@ M4 完成：conntrack 采样、有界聚合、扫描/爆破/可疑出站/出站�
 | [docs/00-oss-landscape.md](docs/00-oss-landscape.md) | 现成开源方案调研：能力矩阵、三条路线、为什么不全自研 |
 | [SPEC.md](SPEC.md) | 实施方案：架构、指标清单、异常检测、告警规则、里程碑 |
 | [TODO.md](TODO.md) | 可执行任务清单（M0–M6），每个任务带 Done when |
+| [docs/install.md](docs/install.md) | 安装、升级、卸载、权限说明 |
+| [docs/runbook.md](docs/runbook.md) | 告警处置手册（按规则） |
+| [docs/acceptance.md](docs/acceptance.md) | 验收记录与未覆盖项 |
+| [docs/adr/0001-grafana.md](docs/adr/0001-grafana.md) | 为什么暂时不引入 Grafana |
 
 ## 三个差异化点
 

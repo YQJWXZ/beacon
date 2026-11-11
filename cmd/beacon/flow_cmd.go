@@ -43,15 +43,15 @@ func cmdFlow(args []string) error {
 	sample := flow.Aggregate(entries, flow.LocalAddresses(), now)
 
 	baseline := flow.LoadBaseline(filepath.Join(cfg.Agent.StateDir, "flow", "baseline.json"))
-	expected := baseline.Expected(now)
+	_, p95, _, count := baseline.Stats(now)
 	findings := flow.Detect(sample, flow.EgressContext{
-		Expected: expected, Samples: baseline.Samples(now), Multiplier: cfg.Flow.EgressMultiplier,
+		P95: p95, Samples: count, MinScore: 3,
 	})
 
 	if *asJSON {
 		return emitJSON(map[string]any{
 			"at": now, "entries_total": total, "sampled": len(entries),
-			"sample": sample, "baseline_bps": expected, "findings": findings,
+			"sample": sample, "p95_bps": p95, "samples": count, "findings": findings,
 		})
 	}
 
@@ -61,7 +61,7 @@ func cmdFlow(args []string) error {
 	fmt.Printf("outbound: %d conns, %d unreplied, %d unique dst ports\n",
 		sample.Out.Conns, sample.Out.Unreplied, len(sample.UniqueDstPortsOut))
 	fmt.Printf("local-only (skipped): %d\n", sample.LocalSkipped)
-	fmt.Printf("egress baseline for this hour: %.1f KB/s\n", expected/1024)
+	fmt.Printf("egress P95 for this hour: %.1f KB/s (%d samples)\n", p95/1024, count)
 
 	if ports := sample.TopPorts(*top); len(ports) > 0 {
 		fmt.Println("\nbusiest buckets:")

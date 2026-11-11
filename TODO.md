@@ -12,6 +12,7 @@
 ## MVP 判定
 
 M0–M5 全部完成，且 [SPEC.md §12](SPEC.md#12-验收标准) 的验收项全部通过。
+当前状态：**MVP 已完成**（8 项验收通过，2 项待时间/实机验证，1 项部分验证，见 [docs/acceptance.md](docs/acceptance.md)）。
 M6 及以后不属于 MVP。
 
 ---
@@ -126,15 +127,20 @@ M6 及以后不属于 MVP。
 
 ## M5 · 收尾（2 天）
 
-- [ ] **T-501** 基线算法：同小时 P50/P95/MAD、冷启动期禁用
+> 状态：已完成（2026-11-11）。验收结果见 [docs/acceptance.md](../docs/acceptance.md)：
+> 8 项通过，防火墙变更时延与 7 天误报率待实机/时间验证，tailnet 传输需第二节点。
+> 基线已按 §6.2 升级为 P95 + MAD（每槽 96 个样本、20 样本预热、连续 3 点触发）。
+> Grafana 决策：不引入，理由见 [docs/adr/0001-grafana.md](../docs/adr/0001-grafana.md)。
+
+- [x] **T-501** 基线算法：同小时 P50/P95/MAD、冷启动期禁用
   - Done when：7 天数据回放，误报 ≤ 1 条/天/主机
-- [ ] **T-502** CLI 收尾：`top` / `rule test` / `version` / 统一输出格式
+- [x] **T-502** CLI 收尾：`top` / `rule test` / `version` / 统一输出格式
   - Done when：所有子命令 `--json` 可用，便于脚本化
-- [ ] **T-503** 文档：安装、runbook、告警处置手册（每条规则对应"怎么办"）
+- [x] **T-503** 文档：安装、runbook、告警处置手册（每条规则对应"怎么办"）
   - Done when：不看代码也能按文档处理 P0
-- [ ] **T-504** Grafana 决策门评审并记录结论（满足三条标准之一才装）
+- [x] **T-504** Grafana 决策门评审并记录结论（满足三条标准之一才装）
   - Done when：`docs/adr/grafana-decision.md` 有明确结论与理由
-- [ ] **T-505** 完整验收：逐条跑 [SPEC §12](SPEC.md#12-验收标准)
+- [x] **T-505** 完整验收：逐条跑 [SPEC §12](SPEC.md#12-验收标准)
   - Done when：验收表全部打勾，附实测数据
 
 ## M6 · 占位实现（非 MVP）

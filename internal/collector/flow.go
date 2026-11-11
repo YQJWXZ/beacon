@@ -31,6 +31,7 @@ type Flow struct {
 	sink     audit.Sink
 	opts     FlowOptions
 	baseline *flow.Baseline
+	streak   int
 
 	mu       sync.RWMutex
 	snap     *flow.Sample
@@ -100,9 +101,17 @@ func (f *Flow) Refresh(ctx context.Context) error {
 	sample := flow.Aggregate(entries, local, now)
 
 	rate := f.egressRate(now)
+	// Score against history first, then fold the sample in; otherwise a spike
+	// immediately raises its own baseline.
+	score, p95, count := f.baseline.Score(now, rate)
 	f.baseline.Observe(now, rate)
-	expected := f.baseline.Expected(now)
-	f.samples = f.baseline.Samples(now)
+	if score > 3 {
+		f.streak++
+	} else {
+		f.streak = 0
+	}
+	expected := p95
+	f.samples = count
 
 	// While warming up the model, write it back so a restart keeps learning.
 	if f.samples%20 == 0 {
@@ -110,7 +119,7 @@ func (f *Flow) Refresh(ctx context.Context) error {
 	}
 
 	findings := flow.Detect(sample, flow.EgressContext{
-		BPS: rate, Expected: expected, Samples: f.samples, Multiplier: f.opts.EgressMultiplier,
+		BPS: rate, P95: p95, Score: score, Samples: count, Streak: f.streak, MinScore: 3,
 	})
 
 	f.mu.Lock()
