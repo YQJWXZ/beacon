@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,9 +18,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/expfmt"
 
+	"github.com/yqjwxz/beacon/internal/audit"
 	"github.com/yqjwxz/beacon/internal/capability"
 	"github.com/yqjwxz/beacon/internal/collector"
 	"github.com/yqjwxz/beacon/internal/config"
+	"github.com/yqjwxz/beacon/internal/eventlog"
 	"github.com/yqjwxz/beacon/internal/procfs"
 	"github.com/yqjwxz/beacon/internal/promwrite"
 	"github.com/yqjwxz/beacon/internal/shipper"
@@ -38,6 +41,7 @@ type Agent struct {
 
 	tr   transport.Transport
 	ship *shipper.Shipper
+	ev   *eventlog.Log
 
 	mu       sync.Mutex
 	streak   map[string]int
@@ -61,11 +65,6 @@ func New(cfg *config.Config, log *slog.Logger) (*Agent, error) {
 		collector.NewNet(src, cfg.Agent.Host, cfg.Agent.Intervals.Fast.D()),
 		collector.NewDisk(src, cfg.Agent.Host, cfg.Agent.Intervals.Normal.D(), mustRegexp(cfg.Agent.DiskMountExclude)),
 	}
-	for _, c := range a.cols {
-		a.reg.MustRegister(c)
-	}
-	a.reg.MustRegister(a.self)
-	a.reg.MustRegister(capability.NewExporter(a.caps))
 
 	if cfg.Transport.Endpoint != "" {
 		// A credential from enrollment wins over a static config token.
@@ -99,7 +98,51 @@ func New(cfg *config.Config, log *slog.Logger) (*Agent, error) {
 		a.tr = tr
 		a.ship = sh
 	}
+
+	if cfg.Audit.Enabled {
+		a.buildAuditCollectors()
+	}
+
+	for _, c := range a.cols {
+		a.reg.MustRegister(c)
+	}
+	a.reg.MustRegister(a.self)
+	a.reg.MustRegister(capability.NewExporter(a.caps))
 	return a, nil
+}
+
+// buildAuditCollectors wires the firewall and port auditors. Without a center
+// the events go to a no-op sink; metrics still work.
+func (a *Agent) buildAuditCollectors() {
+	sink := audit.Sink(audit.NopSink{})
+	if a.ship != nil && a.cfg.Transport.Endpoint != "" {
+		base := strings.TrimSuffix(a.cfg.Transport.Endpoint, "/api/v1/write")
+		ev, err := eventlog.New(filepath.Join(a.cfg.Agent.StateDir, "events"), base, a.cfg.Transport.Token, a.cfg.Agent.Host)
+		if err == nil {
+			a.ev = ev
+			sink = ev
+		} else {
+			a.log.Warn("event spool disabled", "err", err)
+		}
+	}
+
+	sg := make([]audit.SGEntry, 0, len(a.cfg.Audit.SG.Entries))
+	for _, e := range a.cfg.Audit.SG.Entries {
+		sg = append(sg, audit.SGEntry{Proto: e.Proto, Port: e.Port, CIDR: e.CIDR})
+	}
+
+	a.cols = append(a.cols,
+		collector.NewFirewall(audit.ExecRunner{}, a.cfg.Agent.Host, a.cfg.Audit.Interval.D(), sink,
+			filepath.Join(a.cfg.Agent.StateDir, "audit", "fw.json")),
+		collector.NewPorts(audit.ExecRunner{}, a.cfg.Agent.Host, a.cfg.Audit.Interval.D(), sink,
+			filepath.Join(a.cfg.Agent.StateDir, "audit", "ports.json"), collector.ExposureConfig{
+				Allow:        a.cfg.Audit.PortAllow,
+				SG:           sg,
+				SGKnown:      a.cfg.Audit.SG.Known,
+				PublicIP:     a.cfg.Audit.Probe.PublicIP,
+				ProbeTimeout: a.cfg.Audit.Probe.Timeout.D(),
+			}),
+	)
 }
 
 func (a *Agent) Capabilities() *capability.Set { return a.caps }
@@ -150,6 +193,14 @@ func (a *Agent) Run(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			a.shipLoop(ctx)
+		}()
+	}
+
+	if a.ev != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a.ev.Run(ctx)
 		}()
 	}
 

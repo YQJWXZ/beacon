@@ -283,8 +283,15 @@ beacon_<domain>_<name>_<unit>{host, ...}
 
 - **M0**：`cpu` / `mem` / `net` / `disk` 四个采集器、能力探测、本地 `/metrics`
 - **M1**：WAL 存储转发、`remote_write` 编码、Transport（direct/system/unix/proxy）、主机注册、心跳、`beacon-server` 网关、systemd 与 compose
+- **M2**：防火墙四后端解析（nft / iptables / ufw / firewalld）、规则 diff、危险规则识别、端口快照与差分、暴露面模型、事件入库
 
 与下文表格的已知差异：
+
+- 防火墙指标名以代码为准：`beacon_fw_policy_open{chain}`、`beacon_fw_risky_rules`、`beacon_fw_change_total{kind}`
+- 端口指标：`beacon_port_listen_info{proto,addr,port,comm,uid}`、`beacon_port_new_total`、`beacon_port_removed_total`、`beacon_port_widened_total`
+- **外部可达性探测目前由 agent 自测**（拨号自己的公网 IP），不是中心侧探针；中心侧探针需要知道每台主机的公网地址与端口清单，推迟到 M6
+- 探测失败一律视为「未知」，不产生告警——避免 NAT 回环失败造成误报
+- 云安全组仍是手工声明（`audit.security_group`），provider 适配器保持占位
 
 - CPU 使用率为**全核聚合**，per-core 暂未开启（序列预算考虑，需要时加配置项）
 - 磁盘 IOPS 用 gauge `beacon_disk_iops{op}`，`await` / `util` 为区间计算值（需要两次采样）
@@ -643,7 +650,10 @@ repeat_interval: P0=1h / P1=4h / P2=24h
 
 - **VictoriaMetrics 单节点**：`-retentionPeriod=30d`，5 分钟/1 小时降采样由 `vmalert` 定期计算写入独立 metric
 - 查询：PromQL（VM 兼容）
-- 事件类数据（防火墙变更、端口变更明细）额外写一份 JSON 到 `beacon-server` 的 SQLite，便于按时间轴回溯；指标库只存计数
+- **事件与指标分离**：指标库只存计数与状态；防火墙变更、端口新增、暴露面命中等明细以 JSON 事件写入 `beacon-server` 的 SQLite
+  - agent 侧 JSONL spool（`events/events.jsonl` + offset 文件）保证断网不丢事件
+  - 表结构：`events(id, ts, host, type, severity, data)`，索引 `(host, ts)` 与 `(type, ts)`
+  - 查询：`GET /api/v1/events?host=&type=&since=&limit=`，仅管理员 token 可用
 - 备份：VM 快照 + SQLite 每日备份到对象存储（可选）
 
 ---
@@ -706,7 +716,8 @@ victoriametrics + vmalert + alertmanager + beacon-server
 - `victoriametrics` 只绑定 `127.0.0.1:8428`，不直接对外
 - `beacon-server` 是唯一入口：`/api/v1/enroll` 换发长期凭证，`/api/v1/write` 校验 token 后转发给 VM
 - 写入口会校验每条序列的 `host` 标签与 token 所属主机一致，**一台被入侵的机器不能污染另一台的数据**
-- `beacon-server` 还承担：Alertmanager webhook → 飞书（M3）、审计明细查询 API（M2）
+- `POST /api/v1/events` 接收审计事件（同样校验 host），`GET /api/v1/events` 供管理员回溯
+- `beacon-server` 还承担：Alertmanager webhook → 飞书（M3）
 - Grafana 只在 M5 决策门通过后加入，不预先安装
 
 ### 10.3 存储转发语义

@@ -14,6 +14,7 @@ import (
 
 	"github.com/prometheus/prometheus/prompb"
 
+	"github.com/yqjwxz/beacon/internal/audit"
 	"github.com/yqjwxz/beacon/internal/promwrite"
 )
 
@@ -33,8 +34,13 @@ func testServer(t *testing.T) (*httptest.Server, *httptest.Server, *atomic.Int64
 	if err != nil {
 		t.Fatal(err)
 	}
+	events, err := OpenEvents(filepath.Join(t.TempDir(), "events.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { events.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(NewServer(store, vm.URL, "enroll-secret", log).Routes())
+	srv := httptest.NewServer(NewServer(store, events, vm.URL, "enroll-secret", log).Routes())
 	t.Cleanup(srv.Close)
 	return srv, vm, &vmCalls
 }
@@ -137,7 +143,7 @@ func TestUpstreamFailurePropagates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(NewServer(store, vm.URL, "s", slog.New(slog.NewTextHandler(io.Discard, nil))).Routes())
+	srv := httptest.NewServer(NewServer(store, mustEvents(t), vm.URL, "s", slog.New(slog.NewTextHandler(io.Discard, nil))).Routes())
 	defer srv.Close()
 
 	resp, _ := postRaw(t, srv.URL+"/api/v1/write", payloadFor(t, "h1"), map[string]string{
@@ -150,7 +156,7 @@ func TestUpstreamFailurePropagates(t *testing.T) {
 
 func TestEnrollmentDisabledWithoutToken(t *testing.T) {
 	store, _ := OpenStore(filepath.Join(t.TempDir(), "hosts.json"))
-	srv := httptest.NewServer(NewServer(store, "http://127.0.0.1:1", "", slog.New(slog.NewTextHandler(io.Discard, nil))).Routes())
+	srv := httptest.NewServer(NewServer(store, mustEvents(t), "http://127.0.0.1:1", "", slog.New(slog.NewTextHandler(io.Discard, nil))).Routes())
 	defer srv.Close()
 
 	resp, _ := postJSON(t, srv.URL+"/api/v1/enroll", enrollRequest{Token: "", Host: "h"}, nil)
@@ -176,5 +182,97 @@ func TestWriteRejectsForeignHostLabel(t *testing.T) {
 	}
 	if vmCalls.Load() != 0 {
 		t.Fatal("foreign payload reached the upstream")
+	}
+}
+
+func mustEvents(t *testing.T) *EventStore {
+	t.Helper()
+	ev, err := OpenEvents(filepath.Join(t.TempDir(), "events.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ev.Close() })
+	return ev
+}
+
+func TestEventsRoundTrip(t *testing.T) {
+	srv, _, _ := testServer(t)
+
+	_, body := postJSON(t, srv.URL+"/api/v1/enroll", enrollRequest{Token: "enroll-secret", Host: "h1"}, nil)
+	var er enrollResponse
+	if err := json.Unmarshal(body, &er); err != nil {
+		t.Fatal(err)
+	}
+
+	payload := eventsPayload{
+		Host: er.Host,
+		Events: []audit.Event{{
+			Time: time.Now(), Host: er.Host, Type: "port_added", Severity: "P0",
+			Data: map[string]any{"port": 6379},
+		}},
+	}
+	resp, _ := postJSON(t, srv.URL+"/api/v1/events", payload, map[string]string{
+		"Authorization": "Bearer " + er.Token,
+	})
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("post events status = %d", resp.StatusCode)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/events?host="+er.Host, nil)
+	req.Header.Set("Authorization", "Bearer enroll-secret")
+	gresp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gresp.Body.Close()
+	var out struct {
+		Count  int        `json:"count"`
+		Events []EventRow `json:"events"`
+	}
+	if err := json.NewDecoder(gresp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Count != 1 || out.Events[0].Type != "port_added" {
+		t.Fatalf("events = %+v", out)
+	}
+	if string(out.Events[0].Data) == "" {
+		t.Fatal("event payload lost")
+	}
+}
+
+func TestEventsRejectForeignHost(t *testing.T) {
+	srv, _, _ := testServer(t)
+	_, body := postJSON(t, srv.URL+"/api/v1/enroll", enrollRequest{Token: "enroll-secret", Host: "h1"}, nil)
+	var er enrollResponse
+	if err := json.Unmarshal(body, &er); err != nil {
+		t.Fatal(err)
+	}
+
+	payload := eventsPayload{Host: "someone-else", Events: []audit.Event{{Type: "fw_change"}}}
+	resp, _ := postJSON(t, srv.URL+"/api/v1/events", payload, map[string]string{
+		"Authorization": "Bearer " + er.Token,
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestEventQueryRequiresAdmin(t *testing.T) {
+	srv, _, _ := testServer(t)
+	_, body := postJSON(t, srv.URL+"/api/v1/enroll", enrollRequest{Token: "enroll-secret", Host: "h1"}, nil)
+	var er enrollResponse
+	if err := json.Unmarshal(body, &er); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/events", nil)
+	req.Header.Set("Authorization", "Bearer "+er.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
 }

@@ -1,0 +1,9 @@
+public (active)
+  target: default
+  interfaces: eth0
+  sources:
+  services: ssh http
+  ports: 6379/tcp
+  protocols:
+  forward: no
+  masquerade: no

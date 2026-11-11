@@ -64,23 +64,25 @@ M6 及以后不属于 MVP。
 
 ## M2 · 审计（2 天）
 
-- [ ] **T-201** 防火墙快照：`nft -j` / `iptables-save` / `ufw status` / `firewall-cmd`，归一化为统一模型
+> 状态：已完成（2026-11-11）。T-207 的外部可达性目前由 **agent 自测公网 IP** 实现（探测失败一律记为 unknown，不产生误报）；中心侧探针需要中心维护每台主机的公网地址与端口清单，推迟到 M6。
+
+- [x] **T-201** 防火墙快照：`nft -j` / `iptables-save` / `ufw status` / `firewall-cmd`，归一化为统一模型
   - Done when：四类后端至少两种在真实机器上解析正确；不支持时降级为 hash 比对
-- [ ] **T-202** 规则集 hash + diff + `fw_change` 事件
+- [x] **T-202** 规则集 hash + diff + `fw_change` 事件
   - Done when：手工 `nft add rule` 后 60s 内产出带 diff 的事件
-- [ ] **T-203** 危险规则识别：默认策略、`0.0.0.0/0` 高危端口、IPv6 覆盖缺失
+- [x] **T-203** 危险规则识别：默认策略、`0.0.0.0/0` 高危端口、IPv6 覆盖缺失
   - Done when：对内置样本集（`testdata/fw/`）的判定与预期完全一致
-- [ ] **T-204** 端口快照：`ss -Htulpen` 解析出 proto/addr/port/pid/comm/uid
+- [x] **T-204** 端口快照：`ss -Htulpen` 解析出 proto/addr/port/pid/comm/uid
   - Done when：与 `ss -tulpn` 人工核对一致；解析失败不影响主流程
-- [ ] **T-205** 端口 diff：新增、关闭、**绑定地址扩大**、uid 变化 + 白名单
+- [x] **T-205** 端口 diff：新增、关闭、**绑定地址扩大**、uid 变化 + 白名单
   - Done when：`127.0.0.1:6379` 改绑 `0.0.0.0:6379` 时立即产生 P0 事件
-- [ ] **T-206** 暴露面模型：`manual`（YAML）+ `probe`（外部实探）两源差集，provider 留空
+- [x] **T-206** 暴露面模型：`manual`（YAML）+ `probe`（外部实探）两源差集，provider 留空
   - Done when：无任何云凭据时报告可生成，且显式标注 `security_group: unknown`
-- [ ] **T-207** 中心侧 probe：并发 TCP connect、超时、重试、结果回写
+- [x] **T-207** 中心侧 probe：并发 TCP connect、超时、重试、结果回写
   - Done when：探测 100 个端口对中心 CPU 影响可忽略，结果与 `nc -z` 一致
-- [ ] **T-208** 事件存储与查询：SQLite 表结构 + `GET /events?host=&since=`
+- [x] **T-208** 事件存储与查询：SQLite 表结构 + `GET /events?host=&since=`
   - Done when：能按主机与时间范围回放"谁在什么时候改了防火墙"
-- [ ] **T-209** `beacon audit fw|ports|exposure` 三个子命令
+- [x] **T-209** `beacon audit fw|ports|exposure` 三个子命令
   - Done when：输出人类可读 + `--json` 两种格式
 
 ## M3 · 告警（2 天）
@@ -134,6 +136,7 @@ M6 及以后不属于 MVP。
 - [ ] **T-604** `tsnet` dialer（内嵌 Tailscale）
 - [ ] **T-605** 飞书企业自建应用（P0 加急/电话）
 - [ ] **T-606** eBPF 进程级流量
+- [ ] **T-607** 中心侧外部探针（替代 agent 自测公网 IP，需要中心维护主机公网地址与端口清单）
 
 ---
 

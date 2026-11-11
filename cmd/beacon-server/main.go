@@ -44,10 +44,16 @@ func main() {
 		log.Error("open store", "err", err)
 		os.Exit(1)
 	}
+	events, err := OpenEvents(filepath.Join(*dataDir, "events.db"))
+	if err != nil {
+		log.Error("open events db", "err", err)
+		os.Exit(1)
+	}
+	defer events.Close()
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           NewServer(store, *vmURL, *enrollToken, log).Routes(),
+		Handler:           NewServer(store, events, *vmURL, *enrollToken, log).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

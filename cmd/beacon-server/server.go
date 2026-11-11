@@ -16,15 +16,17 @@ import (
 
 type Server struct {
 	store       *Store
+	events      *EventStore
 	vmURL       string
 	enrollToken string
 	log         *slog.Logger
 	client      *http.Client
 }
 
-func NewServer(store *Store, vmURL, enrollToken string, log *slog.Logger) *Server {
+func NewServer(store *Store, events *EventStore, vmURL, enrollToken string, log *slog.Logger) *Server {
 	return &Server{
 		store:       store,
+		events:      events,
 		vmURL:       vmURL,
 		enrollToken: enrollToken,
 		log:         log,
@@ -36,6 +38,8 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/enroll", s.handleEnroll)
 	mux.HandleFunc("POST /api/v1/write", s.handleWrite)
+	mux.HandleFunc("POST /api/v1/events", s.handleEventPost)
+	mux.HandleFunc("GET /api/v1/events", s.handleEventQuery)
 	mux.HandleFunc("GET /api/v1/hosts", s.handleHosts)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
@@ -151,13 +155,7 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	// The enroll token doubles as the admin token in M1.
-	if s.enrollToken == "" {
-		writeError(w, http.StatusForbidden, "not configured")
-		return
-	}
-	got := r.Header.Get("Authorization")
-	want := "Bearer " + s.enrollToken
-	if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+	if !s.isAdmin(r) {
 		writeError(w, http.StatusUnauthorized, "invalid token")
 		return
 	}
@@ -182,6 +180,16 @@ func (s *Server) authenticate(r *http.Request) (*Host, bool) {
 		return nil, false
 	}
 	return s.store.Verify(h[len(prefix):])
+}
+
+// isAdmin checks the enrollment token, which doubles as the admin credential.
+func (s *Server) isAdmin(r *http.Request) bool {
+	if s.enrollToken == "" {
+		return false
+	}
+	got := r.Header.Get("Authorization")
+	want := "Bearer " + s.enrollToken
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -37,7 +37,35 @@ func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(),
 type Config struct {
 	Agent     Agent     `yaml:"agent"`
 	Transport Transport `yaml:"transport"`
+	Audit     Audit     `yaml:"audit"`
 	Log       Log       `yaml:"log"`
+}
+
+// Audit controls the firewall and port auditors.
+type Audit struct {
+	Enabled   bool        `yaml:"enabled"`
+	Interval  Duration    `yaml:"interval"`
+	PortAllow []string    `yaml:"port_allow"`
+	SG        SGConfig    `yaml:"security_group"`
+	Probe     ProbeConfig `yaml:"probe"`
+}
+
+// SGConfig is the hand-maintained view of the cloud security group. It stays
+// authoritative until a provider adapter is configured (ADR-005).
+type SGConfig struct {
+	Known   bool            `yaml:"known"`
+	Entries []SGEntryConfig `yaml:"entries"`
+}
+
+type SGEntryConfig struct {
+	Proto string `yaml:"proto"`
+	Port  int    `yaml:"port"`
+	CIDR  string `yaml:"cidr"`
+}
+
+type ProbeConfig struct {
+	PublicIP string   `yaml:"public_ip"`
+	Timeout  Duration `yaml:"timeout"`
 }
 
 type Agent struct {
@@ -111,6 +139,11 @@ func Default() *Config {
 			Dial:    "direct",
 			Timeout: Duration(10 * time.Second),
 		},
+		Audit: Audit{
+			Enabled:  true,
+			Interval: Duration(60 * time.Second),
+			Probe:    ProbeConfig{Timeout: Duration(1 * time.Second)},
+		},
 		Log: Log{Level: "info", Format: "text"},
 	}
 }
@@ -162,6 +195,11 @@ func applyEnv(c *Config) {
 	set("BEACON_TRANSPORT_TOKEN", &c.Transport.Token)
 	set("BEACON_TRANSPORT_DIAL", &c.Transport.Dial)
 	set("BEACON_TRANSPORT_PROXY_URL", &c.Transport.ProxyURL)
+	set("BEACON_AUDIT_PUBLIC_IP", &c.Audit.Probe.PublicIP)
+
+	if v, ok := os.LookupEnv("BEACON_AUDIT_ENABLED"); ok {
+		c.Audit.Enabled = v == "1" || strings.EqualFold(v, "true")
+	}
 
 	if v, ok := os.LookupEnv("BEACON_METRICS_ENABLED"); ok {
 		c.Agent.Metrics.Enabled = v == "1" || strings.EqualFold(v, "true")
@@ -195,6 +233,19 @@ func (c *Config) Validate() error {
 	}
 	if c.Agent.WAL.MaxBytes < c.Agent.WAL.SegmentBytes {
 		return fmt.Errorf("agent.wal.max_bytes must be >= segment_bytes")
+	}
+	if c.Audit.Enabled {
+		if c.Audit.Interval.D() <= 0 {
+			return fmt.Errorf("audit.interval must be positive")
+		}
+		if c.Audit.Probe.Timeout.D() <= 0 {
+			return fmt.Errorf("audit.probe.timeout must be positive")
+		}
+		for _, e := range c.Audit.SG.Entries {
+			if e.Port <= 0 || e.Port > 65535 {
+				return fmt.Errorf("audit.security_group entry has invalid port %d", e.Port)
+			}
+		}
 	}
 	if c.Agent.Metrics.Enabled {
 		if _, _, err := net.SplitHostPort(c.Agent.Metrics.Listen); err != nil {

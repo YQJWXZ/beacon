@@ -44,6 +44,29 @@ transport:
   token: ""
   timeout: 10s
 
+# Firewall and port auditing. Requires root for nftables and socket owners;
+# without root the collectors degrade to "backend none" and lose process names.
+audit:
+  enabled: true
+  interval: 60s
+
+  # Ports that are expected to listen. Suppresses port_added noise only;
+  # exposure findings still report them.
+  port_allow: ["22", "443"]
+
+  # Security group is unknown until you either fill this in or a cloud
+  # provider adapter is configured (ADR-005).
+  security_group:
+    known: false
+    entries:
+      - {proto: tcp, port: 22, cidr: "0.0.0.0/0"}
+
+  # External reachability probe. Empty public_ip means "unknown", never
+  # "closed" - findings are suppressed instead of guessed.
+  probe:
+    public_ip: ""
+    timeout: 1s
+
 log:
   level: info   # debug | info | warn | error
   format: text  # text | json

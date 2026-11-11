@@ -1,0 +1,18 @@
+{"nftables": [
+ {"metainfo": {"version": "1.1.3", "release_name": "Commodore", "json_schema_version": 1}},
+ {"table": {"family": "inet", "name": "filter", "handle": 1}},
+ {"chain": {"family": "inet", "table": "filter", "name": "input", "handle": 1, "type": "filter", "hook": "input", "prio": 0, "policy": "drop"}},
+ {"rule": {"family": "inet", "table": "filter", "chain": "input", "handle": 2, "expr": [
+   {"match": {"op": "==", "left": {"payload": {"protocol": "tcp", "field": "dport"}}, "right": 22}},
+   {"accept": null}]}},
+ {"rule": {"family": "inet", "table": "filter", "chain": "input", "handle": 3, "expr": [
+   {"match": {"op": "==", "left": {"payload": {"protocol": "tcp", "field": "dport"}}, "right": 443}},
+   {"accept": null}]}},
+ {"rule": {"family": "inet", "table": "filter", "chain": "input", "handle": 4, "expr": [
+   {"match": {"op": "==", "left": {"payload": {"protocol": "tcp", "field": "dport"}}, "right": 6379}},
+   {"accept": null}]}},
+ {"rule": {"family": "inet", "table": "filter", "chain": "input", "handle": 5, "expr": [
+   {"match": {"op": "==", "left": {"payload": {"protocol": "tcp", "field": "saddr"}}, "right": {"prefix": {"addr": "10.0.0.0", "prefix_len": 8}}}},
+   {"match": {"op": "==", "left": {"payload": {"protocol": "tcp", "field": "dport"}}, "right": 3306}},
+   {"accept": null}]}}
+]}

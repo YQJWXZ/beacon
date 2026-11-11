@@ -34,14 +34,32 @@ BEACON_TRANSPORT_ENDPOINT=http://<center>:8080/api/v1/write ./bin/beacon agent r
 ./bin/beacon transport test          # 逐层验证 DNS/TCP/TLS/认证/写入
 ```
 
+### 审计（M2）
+
+```bash
+./bin/beacon audit fw          # 防火墙快照 + 与上次的 diff + 危险规则
+./bin/beacon audit ports       # 监听端口 + 新增/移除/绑定地址扩大
+./bin/beacon audit exposure    # 监听 ∩ 外部可达 ∩ 安全组（未知时显式标注）
+./bin/beacon audit fw --json   # 机器可读
+```
+
+事件会写入中心的 SQLite，按主机与时间回溯：
+
+```bash
+curl -H "Authorization: Bearer $BEACON_ENROLL_TOKEN" \
+  'localhost:8080/api/v1/events?host=<host>&type=port_added'
+```
+
 断网演练：`./scripts/netloss-test.sh`（在中心侧运行，见脚本头部说明）。
 
 ## 状态
 
 M0 完成：CPU/内存/网络/磁盘采集、能力探测、本地 `/metrics`。
 M1 完成：传输抽象、WAL 存储转发、注册凭证、`beacon-server` 网关、systemd/安装脚本、中心 compose。
+M2 完成：防火墙四后端解析与 diff、端口审计、暴露面模型、事件入库（SQLite）、`beacon audit` CLI。
 
 实测：本机 60 秒断网缓冲 51 KB，恢复后 3 秒排空，断网窗口内的心跳样本被完整补传。
+启动一个公网监听后 8 秒内产生 `port_added` P0 事件，并出现在中心事件库。
 
 ## 文档
 
