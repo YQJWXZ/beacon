@@ -95,6 +95,52 @@ push + 本地 WAL 缓冲同时解决三件事：NAT 穿透、断网不丢数据�
 **不推荐混合语言**：两个工具链、两套发布流程、两套调试经验，单人维护成本大于收益。
 若改用 Rust，本文档架构不变，只替换实现层。
 
+### ADR-004：传输层可插拔，Tailscale 只是一个选项
+
+中心固定在本机，但**网络路径不写死**。agent 只依赖一个 `Transport` 接口，不关心包怎么到中心。
+
+```go
+type Transport interface {
+    Name() string
+    Send(ctx context.Context, batch []byte) error
+    Close() error
+}
+```
+
+把「寻址」和「拨号」分开：endpoint 始终是 URL，dialer 决定怎么连。
+
+| dialer | 场景 | 前置条件 | 阶段 |
+|---|---|---|---|
+| `direct` | 中心有公网、同网段、或 vpn 已路由 | 无 | MVP 默认 |
+| `system` | 主机已加入 tailnet，用 MagicDNS 域名寻址 | 系统装好 tailscaled，agent 零感知 | MVP 支持 |
+| `tsnet` | 不想在主机装 tailscale | 内嵌 Tailscale，二进制 +15–25MB，需 auth key | v0.3 可选 |
+| `proxy` | 出口受限，需要 socks5/http proxy | 代理地址 | v0.2 |
+| `unix` | 本机自测 | 无 | MVP |
+
+设计约束：
+
+- 换传输方式只改配置，不改代码；`transport.kind` 与 `endpoint` 正交
+- 传输失败一律进 WAL，不区分原因——网络问题不该影响采集
+- `beacon transport test` 逐层验证：DNS → TCP → TLS → 认证 → 写入，输出卡在哪一层
+
+### ADR-005：云能力是可选适配器，不是前置条件
+
+没有云厂商 AK，系统功能完整度**不得下降**，只是少一个数据源。同时，任何组件都不得按"主机类型"分支
+（不写 `if cloud == tencent`），一律按**能力探测**决定行为。
+
+- 每个云能力定义独立接口，默认 `noop` 实现返回 `unknown`，而不是报错
+- 安全组数据三个来源，可同时配置、互为交叉验证：
+
+| source | 实现 | 凭据 | 阶段 |
+|---|---|---|---|
+| `manual` | YAML 声明期望放行规则 | 无 | MVP 默认 |
+| `provider` | 腾讯云/阿里云只读 OpenAPI（**占位**） | AK（未配置时自动禁用） | 接口留空，v0.3 实现 |
+| `probe` | 中心侧外部 TCP 实探 | 无 | MVP |
+
+- 所有相关指标带 `source` 标签，告警与报告能区分「确认不存在」和「不知道」
+- 主机侧同理：启动时探测 `nft` / `ss` / `auditd` / 元数据可达性，缺失项上报 `available=0` 后跳过，
+  **不报错、不退出、不影响其他采集器**
+
 ---
 
 ## 3. 系统架构
@@ -102,27 +148,27 @@ push + 本地 WAL 缓冲同时解决三件事：NAT 穿透、断网不丢数据�
 ### 3.1 组件
 
 ```
-┌─────────────────────────── 被监控主机（家里 / 云上）───────────────────────────┐
-│                                                                              │
-│  beacon-agent （单二进制，root，无监听端口）                                  │
-│  ├─ collector/host       CPU / MEM / DISK / NET / PSI / PROC                 │
-│  ├─ collector/flow       conntrack + ss 采样 → 流量画像                       │
-│  ├─ collector/firewall   nft -j / iptables-save / ufw  → 快照 + diff          │
-│  ├─ collector/ports      ss -tulpen → 监听集合 + 外部探测结果                 │
-│  ├─ collector/security   SSH 日志 / 关键文件 hash / auditd 事件               │
-│  ├─ detector             规则型 + 基线型异常判定（本地，降带宽）              │
-│  ├─ buffer               WAL 环形缓冲（断网 24h，磁盘上限 64MB）              │
-│  └─ shipper              HTTPS + Bearer token → remote_write                 │
-└───────────────────────────────────┬──────────────────────────────────────────┘
-                                    │ 出站 443（可走 mTLS）
-                                    ▼
-┌──────────────────────── 中心（家里主机，Docker Compose）──────────────────────┐
-│  VictoriaMetrics  :8428   时序存储 + PromQL                                  │
-│  vmalert          :8880   规则求值 → 告警                                    │
-│  Alertmanager     :9093   分组 / 抑制 / 静默 / 路由                          │
-│  Grafana          :3000   面板（v0.3）                                       │
-│  beacon-server    :8080   主机注册、配置下发、审计查询 API、CLI 后端         │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────── 被监控主机（家里 / 云上） ─────────────────────────┐
+│                                                                            │
+│  beacon-agent （单二进制，root，无监听端口）                               │
+│  ├─ collector/host       CPU / MEM / DISK / NET / PSI / PROC               │
+│  ├─ collector/flow       conntrack + ss 采样 → 流量画像                    │
+│  ├─ collector/firewall   nft -j / iptables-save / ufw → 快照 + diff        │
+│  ├─ collector/ports      ss -tulpen → 监听集合                             │
+│  ├─ collector/security   SSH 日志 / 关键文件 hash / auditd 事件            │
+│  ├─ detector             规则型 + 基线型异常判定（本地，降带宽）           │
+│  ├─ buffer               WAL 环形缓冲（断网 24h，磁盘上限 64MB）           │
+│  └─ shipper              Transport（direct/system/tsnet/proxy）            │
+└─────────────────────────────────┬──────────────────────────────────────────┘
+                                  │ 出站（默认 443，TLS 可选 mTLS）
+                                  ▼
+┌─────────────────────── 中心（本机，Docker Compose） ───────────────────────┐
+│  VictoriaMetrics  :8428   时序存储 + PromQL（自带 vmui）                   │
+│  vmalert          :8880   规则求值 → 告警                                  │
+│  Alertmanager     :9093   分组 / 抑制 / 静默 / 路由                        │
+│  beacon-server    :8080   注册 / 飞书通知 / 审计 API / CLI                 │
+│  Grafana          :3000   MVP 不装，见 §11 决策门                          │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 3.2 数据流
@@ -131,8 +177,8 @@ push + 本地 WAL 缓冲同时解决三件事：NAT 穿透、断网不丢数据�
 2. **本地判定**：能在本地判定的（扫描、端口新增、防火墙变更、突发外联）直接在 agent 内出结论，只上报"指标 + 事件"，不上报原始明细 → 省带宽、降基数
 3. **缓冲**：写入本地 WAL，按批（默认 5s / 2000 samples）发送；失败指数退避
 4. **入库**：VictoriaMetrics 接收 `remote_write`
-5. **告警**：vmalert 加载规则 → 触发 Alertmanager → 按标签路由到通知渠道
-6. **回查**：CLI / Grafana / beacon-server 直接查 VM
+5. **告警**：vmalert 加载规则 → 触发 Alertmanager → webhook 到 beacon-server → 飞书
+6. **回查**：CLI / vmui（VM 自带）/ Grafana（若启用）/ beacon-server 直接查 VM
 
 ### 3.3 主机身份
 
@@ -156,6 +202,21 @@ push + 本地 WAL 缓冲同时解决三件事：NAT 穿透、断网不丢数据�
 - 传输 HTTPS + 每主机独立 token；支持 mTLS（可选）
 - agent 需要 root（读 nftables、进程归属、dmesg），但以最小系统调用面运行，不做 shell 拼接（全部走 exec 数组调用）
 - 中心侧 token 可吊销，吊销后 agent 停止上报并在本地记录
+
+### 3.6 传输层抽象
+
+```
+agent.config.yaml
+  transport:
+    kind: http            # 协议层：http（remote_write over TLS）
+    endpoint: https://center.example:8428/api/v1/write
+    dial: system          # 拨号层：direct | system | tsnet | proxy | unix
+```
+
+- `kind` 决定"用什么协议说话"，`dial` 决定"包怎么走"，两者独立
+- `dial=system` 时 Tailscale 透明生效：只要本机加入了 tailnet 且 endpoint 用 MagicDNS 名，代码零改动
+- `dial=direct` 是默认值，不假设任何网络环境
+- 中心地址、凭证、CA 全部来自配置或环境变量，**代码里没有任何写死的地址**
 
 ---
 
@@ -393,14 +454,26 @@ L ∩ S - R        → 以为开了其实不通（业务故障的常见原因）
 | `beacon_open_fd_ratio` / `beacon_pid_count` | ★★ | 句柄泄漏、进程数暴涨 |
 | `beacon_agent_up` / `beacon_agent_collect_duration_seconds` / `beacon_buffer_bytes` | ★★★ | **监控自己**，否则采集挂了没人知道 |
 
-### 5.11 云主机上下文（v0.3）
+### 5.11 云主机上下文（可选适配器，默认留空）
 
-| 指标 | 来源 | 价值 |
-|---|---|---|
-| 实例 ID / 规格 / 区域 / AZ | 元数据 API `169.254.169.254`（超时 1s，失败降级） | ★★ |
-| 安全组规则 | 腾讯云/阿里云 OpenAPI（只读 AK） | ★★★ |
-| 公网/弹性 IP | 元数据 | ★ |
-| 带宽上限、流量包余量 | 云 API | ★★ |
+**约束：没有云凭据时功能完整度不下降，只是少一个数据源；任何组件不得按主机类型分支。**
+
+| 能力 | 接口 | 默认实现 | 数据源 | 阶段 |
+|---|---|---|---|---|
+| 实例元数据 | `InstanceInfo` | `169.254.169.254`，1s 超时，失败返回 `unknown` | metadata / manual | MVP |
+| 安全组规则 | `SecurityGroup` | `noop` → `source="unavailable"` | manual（默认）/ provider（占位）/ probe | 占位 |
+| 带宽上限 | `Bandwidth` | 读配置，缺省 `unknown` | manual / provider | 占位 |
+| 公网 / 弹性 IP | `PublicIP` | 元数据或手工 | metadata | MVP |
+| 备份 / 快照状态 | `BackupStatus` | `noop` | provider | v0.3 |
+
+未配置云凭据时的降级行为（必须显式，不能静默）：
+
+- 暴露面分析退化为「监听 ∩ 外部实探」，报告里标注 `security_group: unknown`
+- 依赖安全组的告警规则自动禁用，**不产生"未知"噪音**
+- 指标标签 `source` 区分 `manual` / `probe` / `provider` / `unavailable`
+
+占位接口的意义：将来拿到只读 AK 时，只实现一个 adapter 并配置凭据即可，
+上层的暴露面模型、告警规则、报告格式**一行都不用改**。
 
 ---
 
@@ -498,12 +571,50 @@ L ∩ S - R        → 以为开了其实不通（业务故障的常见原因）
 
 ### 7.3 聚合与路由
 
-```
-Alertmanager route:
-  ├─ severity=P0 → 电话/强提醒 + IM + 邮件
-  ├─ severity=P1 → IM + 邮件
-  └─ severity=P2 → 邮件（每日 09:00 汇总亦可）
+MVP 只实现飞书，其余渠道走同一套抽象，后续加 adapter 即可。
 
+```
+vmalert --alert--> Alertmanager --webhook--> beacon-server /hooks/alert --card--> 飞书
+```
+
+- Alertmanager 没有原生飞书 receiver，统一用 `webhook_configs` 指向 beacon-server
+- beacon-server 负责：签名（`timestamp + HMAC-SHA256(secret + timestamp)`，base64）、卡片渲染、去重、限流、重试
+- 飞书自定义机器人的限制要提前接受：
+  - **不能打电话/加急**，P0 的强提醒需要企业自建应用（v0.2 可选，不影响 MVP）
+  - 有调用频率上限，必须先在服务端按 `host+kind` 合并再发，禁止一条告警一次请求
+  - 签名密钥放配置/环境变量，不入库、不写日志
+- 卡片结构固定，保证扫一眼能决策：
+
+```
+标题   [P0] i-8f2a · 新增公网监听端口
+结论   6379 从 127.0.0.1 改为 0.0.0.0，进程 redis-server (uid=999)
+证据   字段表：旧值 / 新值 / 首次发现 / 持续时长
+按钮   查看曲线（vmui 预置查询）· 静默 1 小时
+```
+
+```json
+{
+  "msg_type": "interactive",
+  "card": {
+    "header": {"template": "red", "title": {"tag": "plain_text", "content": "[P0] i-8f2a · 新增公网监听端口"}},
+    "elements": [
+      {"tag": "div", "text": {"tag": "lark_md", "content": "**6379 从 127.0.0.1 改为 0.0.0.0**\n进程 redis-server (uid=999)"}},
+      {"tag": "div", "fields": [
+        {"is_short": true, "text": {"tag": "lark_md", "content": "**首次发现**\n03:12:07 +08:00"}},
+        {"is_short": true, "text": {"tag": "lark_md", "content": "**持续**\n4m12s"}}
+      ]},
+      {"tag": "action", "actions": [
+        {"tag": "button", "text": {"tag": "plain_text", "content": "查看曲线"}, "type": "primary", "url": "..."},
+        {"tag": "button", "text": {"tag": "plain_text", "content": "静默 1 小时"}, "type": "default", "url": "..."}
+      ]}
+    ]
+  }
+}
+```
+
+其余渠道（邮件/企业微信/Telegram）保留 `Notifier` 接口，MVP 不实现。
+
+```
 group_by: [host, kind]
 group_wait: 30s
 group_interval: 5m
@@ -536,7 +647,8 @@ beacon audit exposure             # 三方差集报告
 beacon top [--by cpu|mem|net]     # 本机 Top 进程
 beacon flow --since 1h --top 10   # 流量画像
 beacon rule test rules.yaml       # 本地用历史数据回放规则，调参用
-beacon alert test <channel>       # 通知渠道连通性测试
+beacon transport test             # 逐层验证 DNS/TCP/TLS/认证/写入
+beacon notify test feishu         # 发一张测试卡片到飞书
 ```
 
 设计原则：**CLI 是 agent 的一部分**（同一个二进制），不依赖中心也能排障。
@@ -573,7 +685,14 @@ WantedBy=multi-user.target
 
 ### 10.2 中心
 
-Docker Compose：`victoriametrics` + `vmalert` + `alertmanager` + `beacon-server`（+ `grafana` 从 v0.3）
+Docker Compose（MVP，不含 Grafana）：
+
+```
+victoriametrics + vmalert + alertmanager + beacon-server
+```
+
+`beacon-server` 承担三件事：主机注册与凭证、Alertmanager webhook → 飞书、审计明细查询 API。
+Grafana 只在 M5 决策门通过后加入，不预先安装。
 
 ### 10.3 资源预算
 
@@ -590,14 +709,25 @@ Docker Compose：`victoriametrics` + `vmalert` + `alertmanager` + `beacon-server
 
 | 阶段 | 内容 | 产出 | 预估 |
 |---|---|---|---|
-| **M0** | 仓库骨架、配置加载、`host` 采集器（CPU/内存/磁盘/网络/PSI）、`/metrics` 本地端点 | 能 `curl localhost:9100/metrics` 看到真实数据 | 0.5 天 |
-| **M1** | 出站上报（remote_write）、WAL 缓冲、心跳、systemd、安装脚本 | 云主机装完即出现在中心 | 2 天 |
-| **M2** | 防火墙审计 + 端口审计 + 暴露面三方差集 | `beacon audit *` 可用，事件入库 | 2 天 |
-| **M3** | 告警规则 1–35、vmalert/Alertmanager、通知渠道 | 端到端告警可收 | 2 天 |
+| **M0** | 仓库骨架、配置加载、`host` 采集器（CPU/内存/磁盘/网络/PSI）、`/metrics` 本地端点 | `beacon agent run` 能输出真实指标 | 0.5 天 |
+| **M1** | Transport 抽象 + 直连实现、remote_write、WAL、心跳、systemd、安装脚本 | 云主机装完即出现在中心 | 2 天 |
+| **M2** | 防火墙审计 + 端口审计 + 暴露面（manual/probe 两个 source，provider 留空） | `beacon audit *` 可用，事件入库 | 2 天 |
+| **M3** | 告警规则 + vmalert/Alertmanager + 飞书适配 | 端到端告警可收 | 2 天 |
 | **M4** | 流量画像 + 规则型检测器（扫描/爆破/突增） | 异常事件可见 | 3 天 |
-| **M5** | 基线算法、Grafana 面板、多主机视图 | 完整 v0.1 | 3 天 |
+| **M5** | 基线算法、CLI 收尾、**Grafana 决策门** | MVP 完成 | 2 天 |
+| **M6** | 云厂商 provider adapter（拿到只读 AK 后）、tsnet、企业自建应用加急 | 缺口补齐 | 视情况 |
 
-> M0–M2 是"有用"的最小闭环；M3 之后才开始产生告警价值。
+> MVP 边界：M0–M5。M0–M2 是"有用"的最小闭环，M3 才开始产生告警价值。
+
+### Grafana 决策门（M5 评定）
+
+只有满足以下任一条才引入 Grafana，否则用 vmui + CLI：
+
+1. 需要在同一页对比 3 台以上主机的同一指标（vmui 做多序列对比很别扭）
+2. 需要把面板分享给不看命令行的人
+3. 需要固化 5 个以上常用视图，且每天都会打开
+
+不满足 = 引入 150MB 内存 + 一套 dashboard JSON 维护成本，收益为负。
 
 ---
 
@@ -613,6 +743,9 @@ Docker Compose：`victoriametrics` + `vmalert` + `alertmanager` + `beacon-server
 | 告警质量 | 连续 7 天，误报 ≤ 1 条/天/主机 |
 | 可解释性 | 每条告警都带 evidence，能回答"为什么报" |
 | 冷启动 | 新主机装上 5 分钟内可见，无需中心侧配置 |
+| 传输可插拔 | 把 endpoint 换成 tailnet 域名、`dial` 改为 `system`，不改代码即可上报 |
+| 云降级 | 未配置任何云 AK 时，`beacon audit exposure` 仍可运行并显式标注 `security_group: unknown` |
+| 飞书可达 | 规则触发到卡片到达 ≤ 60s；限流时合并而非丢弃 |
 
 ---
 
@@ -627,12 +760,23 @@ Docker Compose：`victoriametrics` + `vmalert` + `alertmanager` + `beacon-server
 | 指标基数失控 | 存储打爆 | 严格标签白名单 + 单主机序列上限 + CI 里跑基数检查 |
 | 告警疲劳 | 最终没人看 | 见 6.4；宁可少报，不可乱报 |
 
-**待确认：**
+**已决策（2026-11-11）：**
 
-1. 中心是否固定在家里主机（需要公网可达或 tailscale）？—— 本机已有 tailscale，可优先用它做传输层
-2. 是否需要第一时间接 Grafana，还是先用 CLI + VM 自带的 vmui
-3. 云厂商（腾讯云/阿里云）的 AK 是否愿意授予只读权限（用于安全组比对）
-4. 告警通知渠道优先级：Telegram / 邮件 / 企业微信 / 钉钉
+| 编号 | 决策 | 落到哪 |
+|---|---|---|
+| D-001 | 采集层自研，存储/查询/通知复用成熟组件 | ADR-001 |
+| D-002 | agent 主动出站上报，不要求入站端口 | ADR-002 |
+| D-003 | 实现语言 Go（Rust 为备选，条件见 ADR-003） | ADR-003 |
+| D-004 | 中心固定在本机；传输层抽象，Tailscale 只是一个 dialer 选项 | ADR-004、§3.6 |
+| D-005 | 先做 MVP；Grafana 不进 MVP，M5 按三条标准评估 | §10.2、§11 |
+| D-006 | 暂无云厂商只读 AK：云能力做接口占位，`noop` 降级，不阻塞 | ADR-005、§5.11 |
+| D-007 | 告警渠道优先飞书；P0 加急需企业自建应用，列为 v0.2 可选 | §7.3 |
+
+**仍需确认：**
+
+1. 飞书机器人 webhook 地址与签名密钥（`secret`），以及是否允许用群机器人（而非企业自建应用）
+2. 仓库 git 作者邮箱是否用 GitHub noreply（当前为 `86005552+YQJWXZ@users.noreply.github.com`）
+3. 首批被监控主机清单与角色标签（`role` 用于端口/进程白名单）
 
 ---
 
@@ -640,7 +784,7 @@ Docker Compose：`victoriametrics` + `vmalert` + `alertmanager` + `beacon-server
 
 | 想做的事 | 用什么 |
 |---|---|
-| 看板、历史曲线 | VictoriaMetrics + Grafana（本项目只负责喂数据） |
+| 看板、历史曲线 | VictoriaMetrics（vmui）+ Grafana（通过 M5 决策门后） |
 | 网站可用性/证书到期 | Uptime Kuma 或 blackbox_exporter（不重复造） |
 | 日志检索 | Loki / OpenObserve（不并入） |
 | 入侵检测（特征） | Suricata / CrowdSec（本项目只做统计异常，不做特征匹配） |

@@ -13,6 +13,7 @@
 |---|---|
 | [docs/00-oss-landscape.md](docs/00-oss-landscape.md) | 现成开源方案调研：能力矩阵、三条路线、为什么不全自研 |
 | [SPEC.md](SPEC.md) | 实施方案：架构、指标清单、异常检测、告警规则、里程碑 |
+| [TODO.md](TODO.md) | 可执行任务清单（M0–M6），每个任务带 Done when |
 
 ## 三个差异化点
 
@@ -38,4 +39,6 @@ Go 1.27（静态单二进制）· VictoriaMetrics · vmalert · Alertmanager · 
 
 ## 状态
 
-方案阶段（v0.1 草案）。代码尚未开始，等待 [SPEC.md](SPEC.md) 第 13 节"待确认"项拍板。
+方案已定稿，进入 MVP 开发（见 [TODO.md](TODO.md)）。MVP 不包含 Grafana：
+先用 VictoriaMetrics 自带的 vmui + CLI，M5 按三条标准评审后再决定是否引入。
+告警渠道只做飞书。
