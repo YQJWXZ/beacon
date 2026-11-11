@@ -124,3 +124,30 @@ export function Stat({ label, value, hint }: { label: string; value: string; hin
     </div>
   )
 }
+
+export function Pager({
+  page,
+  pageSize,
+  total,
+  onChange,
+}: {
+  page: number
+  pageSize: number
+  total: number
+  onChange: (page: number) => void
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+  return (
+    <div className="pager">
+      <button className="tab" disabled={page <= 1} onClick={() => onChange(page - 1)}>
+        上一页
+      </button>
+      <span className="pager-info">
+        第 {page} / {pages} 页 · 共 {total} 条
+      </span>
+      <button className="tab" disabled={page >= pages} onClick={() => onChange(page + 1)}>
+        下一页
+      </button>
+    </div>
+  )
+}

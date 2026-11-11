@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import { events, type AuditEvent } from '../api'
-import { Card, Empty, ErrorBanner, Severity } from '../components/ui'
+import { Card, Empty, ErrorBanner, Pager, Severity } from '../components/ui'
 import { ts } from '../format'
+
+const PAGE_SIZE = 20
 
 export function EventsPage() {
   const [rows, setRows] = useState<AuditEvent[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [type, setType] = useState('')
   const [host, setHost] = useState('')
   const [err, setErr] = useState('')
@@ -14,12 +18,19 @@ export function EventsPage() {
     let alive = true
     async function load() {
       try {
-        const e = await events({ host: host || undefined, type: type || undefined, limit: 200 })
+        const res = await events({
+          host: host || undefined,
+          type: type || undefined,
+          limit: PAGE_SIZE,
+          offset: (page - 1) * PAGE_SIZE,
+        })
         if (!alive) return
-        setRows(e)
+        setRows(res.events)
+        setTotal(res.total)
         setErr('')
       } catch (e) {
-        if (alive) setErr(e instanceof Error ? e.message : String(e))
+        if (!alive) return
+        setErr(e instanceof Error ? e.message : String(e))
       } finally {
         if (alive) setLoaded(true)
       }
@@ -30,7 +41,7 @@ export function EventsPage() {
       alive = false
       clearInterval(t)
     }
-  }, [type, host])
+  }, [type, host, page])
 
   return (
     <>
@@ -38,7 +49,7 @@ export function EventsPage() {
         <h1 className="display" style={{ fontSize: 34, margin: 0 }}>
           审计事件
         </h1>
-        <span className="card-sub">最近 200 条</span>
+        <span className="card-sub">共 {total} 条</span>
       </div>
 
       <div className="tabs">
@@ -47,14 +58,20 @@ export function EventsPage() {
           style={{ maxWidth: 220 }}
           placeholder="按主机过滤"
           value={host}
-          onChange={(e) => setHost(e.target.value)}
+          onChange={(e) => {
+            setHost(e.target.value)
+            setPage(1)
+          }}
         />
         <input
           className="input"
           style={{ maxWidth: 220 }}
           placeholder="按类型过滤，如 port_added"
           value={type}
-          onChange={(e) => setType(e.target.value)}
+          onChange={(e) => {
+            setType(e.target.value)
+            setPage(1)
+          }}
         />
       </div>
 
@@ -76,7 +93,7 @@ export function EventsPage() {
               </thead>
               <tbody>
                 {rows.map((e, i) => (
-                  <tr key={i}>
+                  <tr key={`${e.time}-${i}`}>
                     <td className="mono muted">{ts(e.time)}</td>
                     <td>
                       <Severity value={e.severity} />
@@ -98,6 +115,7 @@ export function EventsPage() {
               </tbody>
             </table>
           </div>
+          <Pager page={page} pageSize={PAGE_SIZE} total={total} onChange={setPage} />
         </Card>
       )}
     </>

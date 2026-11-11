@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { alerts, ApiError, type Alert } from '../api'
-import { Card, Empty, ErrorBanner, Severity } from '../components/ui'
+import { Card, Empty, ErrorBanner, Pager, Severity } from '../components/ui'
 import { ts } from '../format'
+
+const PAGE_SIZE = 10
 
 export function AlertsPage() {
   const [rows, setRows] = useState<Alert[]>([])
   const [err, setErr] = useState('')
   const [loaded, setLoaded] = useState(false)
+  const [page, setPage] = useState(1)
 
   useEffect(() => {
     let alive = true
@@ -36,6 +39,9 @@ export function AlertsPage() {
   }, [])
 
   const sorted = [...rows].sort((a, b) => rank(a) - rank(b))
+  const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const safePage = Math.min(page, pages)
+  const visible = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   return (
     <>
@@ -64,7 +70,7 @@ export function AlertsPage() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((a) => (
+                {visible.map((a) => (
                   <tr key={a.fingerprint}>
                     <td>
                       <Severity value={a.labels.severity} />
@@ -86,6 +92,7 @@ export function AlertsPage() {
               </tbody>
             </table>
           </div>
+          <Pager page={safePage} pageSize={PAGE_SIZE} total={sorted.length} onChange={setPage} />
         </Card>
       )}
     </>

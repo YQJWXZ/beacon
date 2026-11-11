@@ -92,13 +92,14 @@ export interface AuditEvent {
   data: unknown
 }
 
-export async function events(params: { host?: string; type?: string; limit?: number }): Promise<AuditEvent[]> {
+export async function events(params: { host?: string; type?: string; limit?: number; offset?: number }): Promise<{ events: AuditEvent[]; total: number }> {
   const p = new URLSearchParams()
   if (params.host) p.set('host', params.host)
   if (params.type) p.set('type', params.type)
-  p.set('limit', String(params.limit ?? 200))
-  const r = await getJSON<{ events: AuditEvent[] | null }>('/api/v1/events?' + p.toString())
-  return r.events ?? []
+  p.set('limit', String(params.limit ?? 20))
+  p.set('offset', String(params.offset ?? 0))
+  const r = await getJSON<{ events: AuditEvent[] | null; total: number }>('/api/v1/events?' + p.toString())
+  return { events: r.events ?? [], total: r.total ?? 0 }
 }
 
 // ---- helpers over Prometheus matrices ----

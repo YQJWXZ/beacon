@@ -73,27 +73,37 @@ func (s *EventStore) Insert(ctx context.Context, events []EventRow) error {
 	return tx.Commit()
 }
 
-// Query returns events newest first.
-func (s *EventStore) Query(ctx context.Context, host, typ string, since time.Time, limit int) ([]EventRow, error) {
+// Query returns one page of events newest first, plus the total matching rows.
+func (s *EventStore) Query(ctx context.Context, host, typ string, since time.Time, limit, offset int) ([]EventRow, int, error) {
 	if limit <= 0 || limit > 1000 {
-		limit = 200
+		limit = 20
 	}
-	q := `SELECT ts, host, type, severity, data FROM events WHERE ts >= ?`
+	if offset < 0 {
+		offset = 0
+	}
+
+	where := ` WHERE ts >= ?`
 	args := []any{since.UnixMilli()}
 	if host != "" {
-		q += ` AND host = ?`
+		where += ` AND host = ?`
 		args = append(args, host)
 	}
 	if typ != "" {
-		q += ` AND type = ?`
+		where += ` AND type = ?`
 		args = append(args, typ)
 	}
-	q += ` ORDER BY ts DESC LIMIT ?`
-	args = append(args, limit)
 
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	q := `SELECT ts, host, type, severity, data FROM events` + where + ` ORDER BY ts DESC LIMIT ? OFFSET ?`
+	pageArgs := append(append([]any{}, args...), limit, offset)
+
+	rows, err := s.db.QueryContext(ctx, q, pageArgs...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -103,11 +113,11 @@ func (s *EventStore) Query(ctx context.Context, host, typ string, since time.Tim
 		var e EventRow
 		var data string
 		if err := rows.Scan(&ts, &e.Host, &e.Type, &e.Severity, &data); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		e.Time = time.UnixMilli(ts).UTC()
 		e.Data = json.RawMessage(data)
 		out = append(out, e)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }

@@ -81,12 +81,22 @@ func (s *Server) handleEventQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 || limit > 1000 {
+		limit = 20
+	}
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
 
-	rows, err := s.events.Query(r.Context(), q.Get("host"), q.Get("type"), since, limit)
+	rows, total, err := s.events.Query(r.Context(), q.Get("host"), q.Get("type"), since, limit, offset)
 	if err != nil {
 		s.log.Error("query events", "err", err)
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": rows, "count": len(rows)})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"events": rows, "count": len(rows), "total": total,
+		"limit": limit, "offset": offset,
+	})
 }

@@ -497,3 +497,13 @@ pre {
   .section-head { flex-wrap: wrap; gap: 6px; }
   .display { font-size: 34px; }
 }
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+.pager-info { color: var(--muted); font-size: 13px; }
+.pager .tab[disabled] { opacity: 0.45; cursor: not-allowed; }
