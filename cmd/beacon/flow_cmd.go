@@ -60,6 +60,7 @@ func cmdFlow(args []string) error {
 		sample.In.Conns, sample.In.Unreplied, len(sample.UniqueSrcsIn), len(sample.UniqueDstPortsIn))
 	fmt.Printf("outbound: %d conns, %d unreplied, %d unique dst ports\n",
 		sample.Out.Conns, sample.Out.Unreplied, len(sample.UniqueDstPortsOut))
+	fmt.Printf("local-only (skipped): %d\n", sample.LocalSkipped)
 	fmt.Printf("egress baseline for this hour: %.1f KB/s\n", expected/1024)
 
 	if ports := sample.TopPorts(*top); len(ports) > 0 {

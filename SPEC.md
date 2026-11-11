@@ -299,7 +299,8 @@ M4 的实现差异：
 
 - 流量指标以代码为准：`beacon_flow_conns{dir}`、`beacon_flow_unreplied{dir}`、`beacon_flow_unique_dst_ports{dir}`、`beacon_flow_unique_sources_in`、`beacon_flow_dport_conns{dir,port}`（端口分桶）、`beacon_flow_top_destination_conns{dst}`、`beacon_flow_egress_bps`、`beacon_flow_egress_baseline_bps`
 - 每次采样上限 4096 条，超出部分不读取（但会计数），内存与 CPU 不随连接数增长
-- 只有 `nf_conntrack_acct=1` 时才有 per-connection 字节数；默认关闭，因此 Top-K 以连接数排序
+- 只有 `nf_conntrack_acct=1` 时才有 per-connection 字节数；实测本机为 0，因此 Top-K 以连接数排序
+- 两端都是本机地址的连接（lo、容器互访）被排除，并单独计数为 `beacon_flow_local_skipped`，避免把 163 条表项里只统计到 64 条外联的情况误读为丢数据
 - 出站突增目前用「星期几 × 小时」的 EWMA 基线（168 个槽位），不是 SPEC §6.2 的 P50/P95/MAD；M5 升级
 - `beacon flow --since` 未实现：本地命令只给当前快照，历史查询走 vmui
 

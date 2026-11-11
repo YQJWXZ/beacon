@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/yqjwxz/beacon/internal/audit"
@@ -94,8 +95,25 @@ func auditFW(ctx context.Context, cfg *config.Config, r audit.Runner, asJSON boo
 	}
 	if risky := audit.RiskyRules(snap); len(risky) > 0 {
 		fmt.Println("risky rules (dangerous port open to the world):")
+		// The same rule usually exists for IPv4 and IPv6; show it once.
+		type group struct {
+			rule     audit.Rule
+			families []string
+		}
+		seen := map[string]*group{}
+		var order []string
 		for _, rr := range risky {
-			fmt.Printf("  %-8s %-6s %s\n", rr.DPort, rr.Proto, rr.Text)
+			g, ok := seen[rr.Text]
+			if !ok {
+				g = &group{rule: rr}
+				seen[rr.Text] = g
+				order = append(order, rr.Text)
+			}
+			g.families = append(g.families, rr.Family)
+		}
+		for _, text := range order {
+			g := seen[text]
+			fmt.Printf("  %-8s %-6s %s [%s]\n", g.rule.DPort, g.rule.Proto, text, strings.Join(g.families, ","))
 		}
 	}
 

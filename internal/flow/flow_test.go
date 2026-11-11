@@ -84,6 +84,9 @@ func TestAggregateDirections(t *testing.T) {
 	if len(s.UniqueDstPortsIn) != 1 {
 		t.Errorf("unique in ports = %v", s.UniqueDstPortsIn)
 	}
+	if s.LocalSkipped != 1 {
+		t.Errorf("local skipped = %d, want 1", s.LocalSkipped)
+	}
 }
 
 func TestBucketBoundsCardinality(t *testing.T) {

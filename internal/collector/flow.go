@@ -45,10 +45,10 @@ type Flow struct {
 	local    map[string]bool
 	localAt  time.Time
 
-	dConns, dUnreplied, dTotal   *prometheus.Desc
-	dUniqueDst, dUniqueSrc       *prometheus.Desc
-	dPortConns, dTop             *prometheus.Desc
-	dEgress, dBaseline, dAnomaly *prometheus.Desc
+	dConns, dUnreplied, dTotal         *prometheus.Desc
+	dUniqueDst, dUniqueSrc, dLocalSkip *prometheus.Desc
+	dPortConns, dTop                   *prometheus.Desc
+	dEgress, dBaseline, dAnomaly       *prometheus.Desc
 }
 
 func NewFlow(src *procfs.Source, host string, interval time.Duration, sink audit.Sink, opts FlowOptions) *Flow {
@@ -72,6 +72,7 @@ func NewFlow(src *procfs.Source, host string, interval time.Duration, sink audit
 		dTotal:     b.desc("beacon_flow_entries", "Total conntrack entries observed in the sample."),
 		dUniqueDst: b.desc("beacon_flow_unique_dst_ports", "Distinct destination ports in this sample.", "dir"),
 		dUniqueSrc: b.desc("beacon_flow_unique_sources_in", "Distinct inbound source addresses in this sample."),
+		dLocalSkip: b.desc("beacon_flow_local_skipped", "Connections excluded because both ends are local."),
 		dPortConns: b.desc("beacon_flow_dport_conns", "Connections per bounded destination-port bucket.", "dir", "port"),
 		dTop:       b.desc("beacon_flow_top_destination_conns", "Busiest outbound destinations (top K).", "dst"),
 		dEgress:    b.desc("beacon_flow_egress_bps", "Observed outbound bytes per second across non-loopback interfaces."),
@@ -185,7 +186,7 @@ func (f *Flow) egressRate(now time.Time) float64 {
 func (f *Flow) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{
 		f.dConns, f.dUnreplied, f.dTotal, f.dUniqueDst, f.dUniqueSrc,
-		f.dPortConns, f.dTop, f.dEgress, f.dBaseline, f.dAnomaly,
+		f.dPortConns, f.dTop, f.dEgress, f.dBaseline, f.dAnomaly, f.dLocalSkip,
 	} {
 		ch <- d
 	}
@@ -213,6 +214,7 @@ func (f *Flow) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(f.dUniqueDst, prometheus.GaugeValue, float64(len(s.UniqueDstPortsIn)), "in")
 	ch <- prometheus.MustNewConstMetric(f.dUniqueDst, prometheus.GaugeValue, float64(len(s.UniqueDstPortsOut)), "out")
 	ch <- prometheus.MustNewConstMetric(f.dUniqueSrc, prometheus.GaugeValue, float64(len(s.UniqueSrcsIn)))
+	ch <- prometheus.MustNewConstMetric(f.dLocalSkip, prometheus.GaugeValue, float64(s.LocalSkipped))
 
 	for key, agg := range s.Ports {
 		dir, port, ok := splitPortKey(key)

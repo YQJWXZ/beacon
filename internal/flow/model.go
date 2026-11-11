@@ -42,6 +42,7 @@ type Sample struct {
 	At            time.Time          `json:"at"`
 	Total         int                `json:"total"`
 	Unreplied     int                `json:"unreplied"`
+	LocalSkipped  int                `json:"local_skipped"`
 	In            Side               `json:"in"`
 	Out           Side               `json:"out"`
 	Ports         map[string]PortAgg `json:"ports"` // key: "in|22", "out|other"
@@ -94,6 +95,7 @@ func Aggregate(entries []Entry, local map[string]bool, at time.Time) *Sample {
 		}
 		dir := Classify(e, local)
 		if dir == "" {
+			s.LocalSkipped++
 			continue
 		}
 

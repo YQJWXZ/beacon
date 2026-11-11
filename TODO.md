@@ -109,7 +109,7 @@ M6 及以后不属于 MVP。
 
 > 状态：M4 基本完成（2026-11-11）。T-406 的 `--since` 未实现：本地命令只输出当前快照，历史窗口查询走 vmui。
 > 出站突增使用「星期几 × 小时」的 EWMA 基线（168 槽位），M5 升级为分位数。
-> conntrack 与 nf_conntrack_acct 的解析已用 fixture 覆盖；本机无 root，未对真实 conntrack 表做实机验证。
+> 已用真实 conntrack 表验证：解析器正确处理 `[UNREPLIED]`、IPv6、`zone=`/`use=` 等额外字段；本机 `nf_conntrack_acct=0`，因此 Top-K 按连接数排序。
 
 - [x] **T-401** conntrack 采样：上限 4096 条，超限归并，读失败降级
   - Done when：10k 连接压力下采集耗时 < 200ms，CPU < 1%
