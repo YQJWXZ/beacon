@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,6 +27,7 @@ func main() {
 	feishuSecret := fs.String("feishu-secret", envOr("BEACON_FEISHU_SECRET", ""), "Feishu bot signing secret")
 	amURL := fs.String("alertmanager-url", envOr("BEACON_ALERTMANAGER_URL", "http://alertmanager:9093"), "Alertmanager base URL")
 	vmuiURL := fs.String("vmui-url", envOr("BEACON_VMUI_URL", "http://127.0.0.1:8428"), "VictoriaMetrics vmui base URL")
+	webDir := fs.String("web-dir", envOr("BEACON_WEB_DIR", "web/dist"), "dashboard asset directory")
 	publicURL := fs.String("public-url", envOr("BEACON_PUBLIC_URL", "http://127.0.0.1:8080"), "beacon-server URL reachable from a browser")
 	snoozeSecret := fs.String("snooze-secret", envOr("BEACON_SNOOZE_SECRET", ""), "HMAC key for snooze links")
 	logLevel := fs.String("log-level", envOr("BEACON_LOG_LEVEL", "info"), "log level")
@@ -73,6 +75,8 @@ func main() {
 		Addr: *listen,
 		Handler: NewServer(store, events, ServerOptions{
 			VMURL:       *vmURL,
+			VMBase:      strings.TrimSuffix(*vmURL, "/api/v1/write"),
+			WebDir:      *webDir,
 			EnrollToken: *enrollToken,
 			AMURL:       *amURL,
 			Notifier:    notifier,

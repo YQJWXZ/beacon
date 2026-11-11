@@ -119,3 +119,68 @@ func TestSnoozeCreatesSilence(t *testing.T) {
 		t.Fatal("alertmanager was not called")
 	}
 }
+
+func TestQueryProxyRequiresAdmin(t *testing.T) {
+	srv := NewServer(nil, nil, ServerOptions{VMBase: "http://127.0.0.1:1"}, testLog())
+	ts := httptest.NewServer(srv.Routes())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/query?query=up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestQueryProxyForwards(t *testing.T) {
+	var gotPath, gotQuery string
+	vm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	}))
+	defer vm.Close()
+
+	srv := NewServer(nil, nil, ServerOptions{
+		VMBase: vm.URL, EnrollToken: "admin",
+	}, testLog())
+	ts := httptest.NewServer(srv.Routes())
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/query?query=up%7Bhost%3D%22h%22%7D", nil)
+	req.Header.Set("Authorization", "Bearer admin")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	if gotPath != "/api/v1/query" {
+		t.Errorf("path = %s", gotPath)
+	}
+	if !strings.Contains(gotQuery, "query=up") {
+		t.Errorf("query = %s", gotQuery)
+	}
+}
+
+func TestAlertsProxyRequiresConfig(t *testing.T) {
+	srv := NewServer(nil, nil, ServerOptions{EnrollToken: "admin"}, testLog())
+	ts := httptest.NewServer(srv.Routes())
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/alerts", nil)
+	req.Header.Set("Authorization", "Bearer admin")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+}

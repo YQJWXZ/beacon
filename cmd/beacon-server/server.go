@@ -7,12 +7,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/prometheus/prometheus/prompb"
 
 	"github.com/yqjwxz/beacon/internal/notify"
 	"github.com/yqjwxz/beacon/internal/promwrite"
+	"github.com/yqjwxz/beacon/internal/webui"
 )
 
 type Server struct {
@@ -20,6 +22,8 @@ type Server struct {
 	events      *EventStore
 	notifier    *notify.Notifier
 	vmURL       string
+	vmBase      string
+	webDir      string
 	enrollToken string
 	amURL       string
 	snoozeKey   []byte
@@ -30,10 +34,12 @@ type Server struct {
 // ServerOptions groups the wiring needed by the HTTP layer.
 type ServerOptions struct {
 	VMURL       string
+	VMBase      string
 	EnrollToken string
 	AMURL       string
 	Notifier    *notify.Notifier
 	SnoozeKey   []byte
+	WebDir      string
 }
 
 func NewServer(store *Store, events *EventStore, opts ServerOptions, log *slog.Logger) *Server {
@@ -42,6 +48,8 @@ func NewServer(store *Store, events *EventStore, opts ServerOptions, log *slog.L
 		events:      events,
 		notifier:    opts.Notifier,
 		vmURL:       opts.VMURL,
+		vmBase:      strings.TrimRight(opts.VMBase, "/"),
+		webDir:      opts.WebDir,
 		enrollToken: opts.EnrollToken,
 		amURL:       opts.AMURL,
 		snoozeKey:   opts.SnoozeKey,
@@ -59,6 +67,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/hosts", s.handleHosts)
 	mux.HandleFunc("POST /hooks/alert", s.handleAlert)
 	mux.HandleFunc("GET /snooze", s.handleSnooze)
+	mux.HandleFunc("GET /api/v1/query", s.handleQuery)
+	mux.HandleFunc("GET /api/v1/query_range", s.handleQueryRange)
+	mux.HandleFunc("GET /api/v1/alerts", s.handleAlerts)
+	mux.Handle("/", webui.Handler(s.webDir))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	})

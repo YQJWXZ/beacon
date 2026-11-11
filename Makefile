@@ -13,16 +13,20 @@ LDFLAGS := -s -w \
 # proxy.golang.org is unreachable from mainland China; keep the mirror opt-out.
 export GOPROXY ?= https://goproxy.cn,direct
 
-.PHONY: all build test vet fmt check once clean
+.PHONY: all build ui test vet fmt check once clean
 
-all: build
+all: build ui
 
 build: build-agent build-server
+
+ui:
+	cd web && (test -d node_modules || npm ci) && npm run build
 
 build-agent:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/beacon
 
 build-server:
+	@test -f web/dist/index.html || $(MAKE) ui
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/beacon-server ./cmd/beacon-server
 
 test:

@@ -25,6 +25,18 @@ curl -s localhost:8428/health      # OK
 
 把 `BEACON_ENROLL_TOKEN`、飞书凭证存到 `deploy/.env` 或密码管理器。**不要提交到仓库。**
 
+### 打开控制台
+
+浏览器访问 `http://<center>:8080`，用同一个 `BEACON_ENROLL_TOKEN` 登录。
+如果中心与浏览器不在同一台机器，默认只监听回环，用 SSH 隧道：
+
+```bash
+ssh -L 8080:127.0.0.1:8080 <center>
+```
+
+控制台的前端资源由 `beacon-server -web-dir` 指定，默认 `web/dist`；Docker 镜像已内置。
+本地从源码运行时需要先 `make ui`。
+
 ### 验证告警链路
 
 ```bash

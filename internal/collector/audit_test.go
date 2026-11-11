@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yqjwxz/beacon/internal/audit"
+	"github.com/yqjwxz/beacon/internal/procfs"
 )
 
 type fakeRunner struct {
@@ -151,7 +152,7 @@ func TestPortsDetectNewListener(t *testing.T) {
 	base := "tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:((\"sshd\",pid=812,fd=3)) uid:0 ino:1 sk:1\n"
 	r.set("ss -Htulpen", []byte(base))
 
-	p := NewPorts(r, "h1", time.Minute, sink, filepath.Join(dir, "ports.json"),
+	p := NewPorts(procfs.New(dir, dir), r, "h1", time.Minute, sink, filepath.Join(dir, "ports.json"),
 		ExposureConfig{Allow: []string{"22"}})
 	ctx := context.Background()
 	if err := p.Refresh(ctx); err != nil {
@@ -186,7 +187,7 @@ func TestPortsWidenedFromLoopback(t *testing.T) {
 	loopback := "tcp LISTEN 0 128 127.0.0.1:6379 0.0.0.0:* users:((\"redis\",pid=900,fd=3)) uid:999 ino:1 sk:1\n"
 	r.set("ss -Htulpen", []byte(loopback))
 
-	p := NewPorts(r, "h1", time.Minute, sink, filepath.Join(dir, "ports.json"), ExposureConfig{})
+	p := NewPorts(procfs.New(dir, dir), r, "h1", time.Minute, sink, filepath.Join(dir, "ports.json"), ExposureConfig{})
 	ctx := context.Background()
 	if err := p.Refresh(ctx); err != nil {
 		t.Fatal(err)

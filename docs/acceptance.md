@@ -15,6 +15,7 @@
 | 9 | 传输可插拔 | 换 endpoint/dial 不改代码 | ⚠️ 部分 | `direct` 实测；`unix`/`proxy` 有单测；tailnet 需第二节点 |
 | 10 | 云降级 | 无 AK 时仍可用并标 unknown | ✅ | `audit exposure` 输出 `security group: UNKNOWN`，告警规则不产生噪音 |
 | 11 | 飞书可达 | 触发到卡片 ≤ 60s；限流时合并不丢弃 | ✅ | 真实机器人 497ms 送达；错误签名被飞书拒绝（`sign match fail`） |
+| 12 | 控制台 | 四个页面可用，桌面与移动端不横向溢出 | ✅（视觉） | 1440px 与 390px 截图核对；键盘焦点、reduced-motion 已实现，未做屏幕阅读器审计 |
 
 ## 未覆盖项与原因
 

@@ -143,6 +143,18 @@ M6 及以后不属于 MVP。
 - [x] **T-505** 完整验收：逐条跑 [SPEC §12](SPEC.md#12-验收标准)
   - Done when：验收表全部打勾，附实测数据
 
+## M5.5 · 控制台（2026-11-11 新增）
+
+> 状态：已完成。视觉按 `design.md` 的 Stripe 风格实现，图表使用 ECharts，不自行绘制。
+
+- [x] **T-701** Vite + React + TS 骨架，ECharts 亮色主题
+- [x] **T-702** 中心查询代理（query / query_range / alerts）与管理员鉴权
+- [x] **T-703** 总览页：主机卡片、状态统计、活跃告警
+- [x] **T-704** 主机详情：CPU/内存/磁盘/网络曲线、端口表、链路与暴露面
+- [x] **T-705** 告警页与审计事件页（可展开原始 payload）
+- [x] **T-706** 390px 响应式、键盘焦点、prefers-reduced-motion
+- [x] **T-707** Docker 多阶段构建与 `-web-dir` 静态资源服务
+
 ## M6 · 占位实现（非 MVP）
 
 - [ ] **T-601** `CloudProvider` 接口细化 + `noop` 实现（MVP 已留接口）

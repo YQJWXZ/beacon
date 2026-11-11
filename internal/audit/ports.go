@@ -206,3 +206,36 @@ func (m Matcher) Allowed(l Listen) bool { return m.ports[l.Port] }
 
 // Empty reports whether the matcher has no rules.
 func (m Matcher) Empty() bool { return len(m.ports) == 0 && len(m.cond) == 0 }
+
+// Ephemeral ports are reserved by the kernel for outgoing connections. A UDP
+// socket bound to one of them is a client, not a service, and treating it as a
+// listener turns browser chatter into an event storm.
+var (
+	ephemeralLow  = 32768
+	ephemeralHigh = 60999
+)
+
+// SetEphemeralRange overrides the range, normally from
+// /proc/sys/net/ipv4/ip_local_port_range.
+func SetEphemeralRange(lo, hi int) {
+	if lo > 0 && hi >= lo {
+		ephemeralLow, ephemeralHigh = lo, hi
+	}
+}
+
+// IsEphemeral reports whether a port belongs to the ephemeral range.
+func IsEphemeral(port int) bool { return port >= ephemeralLow && port <= ephemeralHigh }
+
+// SplitEphemeral removes client-side sockets and reports how many were dropped.
+func SplitEphemeral(in []Listen) ([]Listen, int) {
+	out := make([]Listen, 0, len(in))
+	skipped := 0
+	for _, l := range in {
+		if IsEphemeral(l.Port) {
+			skipped++
+			continue
+		}
+		out = append(out, l)
+	}
+	return out, skipped
+}

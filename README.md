@@ -10,6 +10,7 @@
 ## 快速开始
 
 ```bash
+make ui      # 构建控制台（首次需要）
 make build
 ./bin/beacon agent check          # 能力探测：nft / ss / psi / conntrack / metadata
 ./bin/beacon agent run --once     # 采集一次，打印 Prometheus 文本格式
@@ -96,11 +97,35 @@ M2 完成：防火墙四后端解析与 diff、端口审计、暴露面模型、
 M3 完成：vmalert 规则集、Alertmanager 路由/抑制、飞书卡片、去重限流、签名静默链接。
 M4 完成：conntrack 采样、有界聚合、扫描/爆破/可疑出站/出站突增检测、`beacon flow` CLI。
 M5 完成：P95+MAD 基线、`beacon top`、`beacon rule test`、runbook/安装/验收文档、Grafana 决策（暂不引入）。
+M5.5 完成：内置控制台（React + ECharts），总览 / 主机详情 / 告警 / 事件四个页面，查询经中心代理鉴权。
 
 实测：
 - 断网 60 秒缓冲 51 KB，恢复后 3 秒排空，窗口内心跳样本完整补传
 - 新监听端口 8 秒内产生 `port_added` P0 事件，并出现在中心事件库
 - 端口告警经 vmalert/Alertmanager 送达飞书卡片；点击「静默 1 小时」后告警变为 suppressed
+
+## 控制台
+
+中心自带一个轻量控制台（React + ECharts），不依赖 Grafana：
+
+```
+http://<center>:8080/        # 输入 enroll token 登录
+```
+
+| 页面 | 内容 |
+|---|---|
+| 总览 | 主机健康、CPU/内存/磁盘、活跃告警 |
+| 主机 | 1h/6h/24h 时序曲线、监听端口、链路与暴露面 |
+| 告警 | Alertmanager 当前告警，按级别排序 |
+| 事件 | 端口/防火墙审计事件，可展开原始 payload |
+
+中心默认只监听 `127.0.0.1:8080`，远程访问走 Tailscale 或 SSH 隧道：
+
+```bash
+ssh -L 8080:127.0.0.1:8080 <center>
+```
+
+前端源码在 `web/`，`make ui` 构建到 `web/dist`；`beacon-server -web-dir` 指定目录。
 
 ## 文档
 
@@ -134,5 +159,5 @@ M5 完成：P95+MAD 基线、`beacon top`、`beacon rule test`、runbook/安装/
 
 ## 技术栈
 
-Go 1.27（静态单二进制）· VictoriaMetrics · vmalert · Alertmanager · Grafana（v0.3）。选型理由见 [SPEC.md](SPEC.md) ADR-003。
+Go 1.27（静态单二进制）· VictoriaMetrics · vmalert · Alertmanager · React 19 + ECharts 6（内置控制台）。选型理由见 [SPEC.md](SPEC.md) ADR-003；Grafana 决策见 [docs/adr/0001-grafana.md](docs/adr/0001-grafana.md)。
 

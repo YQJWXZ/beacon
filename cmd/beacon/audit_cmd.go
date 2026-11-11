@@ -142,13 +142,15 @@ func auditPorts(ctx context.Context, cfg *config.Config, r audit.Runner, asJSON 
 	if err != nil {
 		return err
 	}
-	prev := audit.LoadListensFile(filepath.Join(cfg.Agent.StateDir, "audit", "ports.json"))
+	listens, skipped := audit.SplitEphemeral(listens)
+	prev, _ := audit.SplitEphemeral(audit.LoadListensFile(filepath.Join(cfg.Agent.StateDir, "audit", "ports.json")))
 	d := audit.DiffListens(prev, listens)
 
 	if asJSON {
 		return emitJSON(map[string]any{"listeners": listens, "diff": d})
 	}
 
+	fmt.Printf("listing %d service sockets (%d ephemeral skipped)\n", len(listens), skipped)
 	fmt.Printf("%-5s %-24s %-8s %-8s %s\n", "PROTO", "ADDR", "PORT", "UID", "PROCESS")
 	for _, l := range listens {
 		fmt.Printf("%-5s %-24s %-8d %-8d %s\n", l.Proto, l.Addr, l.Port, l.UID, l.Comm)

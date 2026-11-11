@@ -3,12 +3,14 @@ package collector
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/yqjwxz/beacon/internal/audit"
+	"github.com/yqjwxz/beacon/internal/procfs"
 )
 
 // ExposureConfig describes the non-host sources of the exposure model.
@@ -23,6 +25,7 @@ type ExposureConfig struct {
 // Ports snapshots listening sockets, diffs them and computes the exposure set.
 type Ports struct {
 	base
+	src      *procfs.Source
 	run      audit.Runner
 	interval time.Duration
 	sink     audit.Sink
@@ -30,21 +33,22 @@ type Ports struct {
 	cfg      ExposureConfig
 	allow    audit.Matcher
 
-	mu       sync.RWMutex
-	listens  []audit.Listen
-	diff     audit.PortDiff
-	exposure audit.Exposure
-	loaded   bool
-	changes  map[string]uint64
+	mu               sync.RWMutex
+	listens          []audit.Listen
+	diff             audit.PortDiff
+	exposure         audit.Exposure
+	loaded           bool
+	ephemeralSkipped int
+	changes          map[string]uint64
 
-	dListen, dNew, dRemoved, dWidened                        *prometheus.Desc
-	dPublic, dUnexpected, dSGUnknown, dProbeUnknown, dSGOpen *prometheus.Desc
+	dListen, dNew, dRemoved, dWidened                                    *prometheus.Desc
+	dPublic, dUnexpected, dSGUnknown, dProbeUnknown, dSGOpen, dEphemeral *prometheus.Desc
 }
 
-func NewPorts(run audit.Runner, host string, interval time.Duration, sink audit.Sink, statePath string, cfg ExposureConfig) *Ports {
+func NewPorts(src *procfs.Source, run audit.Runner, host string, interval time.Duration, sink audit.Sink, statePath string, cfg ExposureConfig) *Ports {
 	b := base{host: host}
 	return &Ports{
-		base: b, run: run, interval: interval, sink: sink, state: statePath, cfg: cfg,
+		base: b, src: src, run: run, interval: interval, sink: sink, state: statePath, cfg: cfg,
 		allow:   audit.NewMatcher(cfg.Allow),
 		changes: map[string]uint64{},
 		dListen: b.desc("beacon_port_listen_info",
@@ -57,6 +61,7 @@ func NewPorts(run audit.Runner, host string, interval time.Duration, sink audit.
 		dSGUnknown:    b.desc("beacon_exposure_sg_unknown", "Security group source is unknown."),
 		dProbeUnknown: b.desc("beacon_exposure_probe_unknown", "External reachability could not be probed."),
 		dSGOpen:       b.desc("beacon_exposure_sg_open_no_listener", "Security group allows a port with no listener."),
+		dEphemeral:    b.desc("beacon_port_ephemeral_skipped", "Sockets bound to the ephemeral range, treated as clients rather than listeners."),
 	}
 }
 
@@ -68,11 +73,15 @@ func (p *Ports) Refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	audit.SetEphemeralRange(readPortRange(p.src))
+	listens, skipped := audit.SplitEphemeral(listens)
 
 	p.mu.Lock()
 	prev := p.listens
 	if !p.loaded {
-		prev = audit.LoadListensFile(p.state)
+		if saved := audit.LoadListensFile(p.state); saved != nil {
+			prev, _ = audit.SplitEphemeral(saved)
+		}
 		p.loaded = true
 	}
 	diff := audit.DiffListens(prev, listens)
@@ -92,6 +101,7 @@ func (p *Ports) Refresh(ctx context.Context) error {
 	})
 
 	p.listens = listens
+	p.ephemeralSkipped = skipped
 	p.diff = diff
 	p.exposure = exposure
 
@@ -146,7 +156,7 @@ func (p *Ports) Refresh(ctx context.Context) error {
 func (p *Ports) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{
 		p.dListen, p.dNew, p.dRemoved, p.dWidened,
-		p.dPublic, p.dUnexpected, p.dSGUnknown, p.dProbeUnknown, p.dSGOpen,
+		p.dPublic, p.dUnexpected, p.dSGUnknown, p.dProbeUnknown, p.dSGOpen, p.dEphemeral,
 	} {
 		ch <- d
 	}
@@ -201,6 +211,7 @@ func (p *Ports) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(p.dSGOpen, prometheus.GaugeValue, float64(len(exp.SGOpenNoListener)))
 	ch <- prometheus.MustNewConstMetric(p.dSGUnknown, prometheus.GaugeValue, boolToFloat(exp.SGUnknown))
 	ch <- prometheus.MustNewConstMetric(p.dProbeUnknown, prometheus.GaugeValue, boolToFloat(exp.ProbeUnknown))
+	ch <- prometheus.MustNewConstMetric(p.dEphemeral, prometheus.GaugeValue, float64(p.ephemeralSkipped))
 }
 
 func boolToFloat(b bool) float64 {
@@ -208,4 +219,23 @@ func boolToFloat(b bool) float64 {
 		return 1
 	}
 	return 0
+}
+
+// readPortRange returns the kernel's ephemeral range, falling back to the
+// Linux default when the file is unavailable.
+func readPortRange(src *procfs.Source) (int, int) {
+	b, err := src.ReadProc("sys", "net", "ipv4", "ip_local_port_range")
+	if err != nil {
+		return 0, 0
+	}
+	f := strings.Fields(string(b))
+	if len(f) != 2 {
+		return 0, 0
+	}
+	lo, err1 := strconv.Atoi(f[0])
+	hi, err2 := strconv.Atoi(f[1])
+	if err1 != nil || err2 != nil {
+		return 0, 0
+	}
+	return lo, hi
 }

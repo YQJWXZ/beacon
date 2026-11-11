@@ -147,7 +147,7 @@ func (a *Agent) buildAuditCollectors() {
 	a.cols = append(a.cols,
 		collector.NewFirewall(audit.ExecRunner{}, a.cfg.Agent.Host, a.cfg.Audit.Interval.D(), sink,
 			filepath.Join(a.cfg.Agent.StateDir, "audit", "fw.json")),
-		collector.NewPorts(audit.ExecRunner{}, a.cfg.Agent.Host, a.cfg.Audit.Interval.D(), sink,
+		collector.NewPorts(a.src, audit.ExecRunner{}, a.cfg.Agent.Host, a.cfg.Audit.Interval.D(), sink,
 			filepath.Join(a.cfg.Agent.StateDir, "audit", "ports.json"), collector.ExposureConfig{
 				Allow:        a.cfg.Audit.PortAllow,
 				SG:           sg,

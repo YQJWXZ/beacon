@@ -5,3 +5,8 @@ coverage.html
 dist/
 .idea/
 .vscode/
+node_modules/
+.history/web/node_modules/
+.playwright-mcp/
+.history/
+design.md
