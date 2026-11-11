@@ -37,6 +37,10 @@ ssh -L 8080:127.0.0.1:8080 <center>
 控制台的前端资源由 `beacon-server -web-dir` 指定，默认 `web/dist`；Docker 镜像已内置。
 本地从源码运行时需要先 `make ui`。
 
+审计事件默认保留 90 天，由 `BEACON_EVENTS_RETENTION`（例如 `720h`）或
+`-events-retention` 调整；服务启动时与之后每 6 小时清理一次，删除量较大时会顺带 VACUUM。
+告警列表里的「静默 1h」直接调用 Alertmanager，不需要再点飞书卡片。
+
 ### 验证告警链路
 
 ```bash

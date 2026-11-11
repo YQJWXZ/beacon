@@ -49,8 +49,8 @@ func CreateSilence(ctx context.Context, client *http.Client, amURL, host, alert 
 	if amURL == "" {
 		return fmt.Errorf("alertmanager URL not configured")
 	}
-	if d > time.Hour {
-		d = time.Hour
+	if d > 24*time.Hour {
+		d = 24 * time.Hour
 	}
 	body := map[string]any{
 		"matchers": []map[string]any{

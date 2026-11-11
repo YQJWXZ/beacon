@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { alerts, ApiError, type Alert } from '../api'
+import { alerts, ApiError, silence, type Alert } from '../api'
 import { Card, Empty, ErrorBanner, Pager, Severity } from '../components/ui'
 import { ts } from '../format'
 
@@ -10,6 +10,8 @@ export function AlertsPage() {
   const [err, setErr] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [page, setPage] = useState(1)
+  const [refresh, setRefresh] = useState(0)
+  const [pending, setPending] = useState<string | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -36,12 +38,27 @@ export function AlertsPage() {
       alive = false
       clearInterval(t)
     }
-  }, [])
+  }, [refresh])
 
   const sorted = [...rows].sort((a, b) => rank(a) - rank(b))
   const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const safePage = Math.min(page, pages)
   const visible = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  async function onSilence(a: Alert) {
+    const host = a.labels.host
+    const alert = a.labels.alertname
+    if (!host || !alert) return
+    setPending(a.fingerprint)
+    try {
+      await silence(host, alert, '1h')
+      setRefresh((v) => v + 1)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPending(null)
+    }
+  }
 
   return (
     <>
@@ -67,6 +84,7 @@ export function AlertsPage() {
                   <th>摘要</th>
                   <th>开始</th>
                   <th>状态</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -86,7 +104,20 @@ export function AlertsPage() {
                       )}
                     </td>
                     <td className="mono muted">{ts(a.startsAt)}</td>
-                    <td className="mono">{a.status.silencedBy?.length ? '已静默' : a.status.state}</td>
+                    <td className="mono">{a.status.silencedBy?.length ? "已静默" : a.status.state}</td>
+                    <td>
+                      <button
+                        className="btn-ghost"
+                        disabled={pending === a.fingerprint || Boolean(a.status.silencedBy?.length)}
+                        onClick={() => onSilence(a)}
+                      >
+                        {a.status.silencedBy?.length
+                          ? "已静默"
+                          : pending === a.fingerprint
+                            ? "处理中…"
+                            : "静默 1h"}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

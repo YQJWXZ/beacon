@@ -154,6 +154,8 @@ M6 及以后不属于 MVP。
 - [x] **T-705** 告警页与审计事件页（可展开原始 payload）
 - [x] **T-706** 390px 响应式、键盘焦点、prefers-reduced-motion
 - [x] **T-707** Docker 多阶段构建与 `-web-dir` 静态资源服务
+- [x] **T-708** 审计事件保留策略（默认 90 天，定时清理 + 按需 VACUUM）
+- [x] **T-709** 控制台内静默（`POST /api/v1/silences`，1 小时）
 
 ## M6 · 占位实现（非 MVP）
 

@@ -71,6 +71,32 @@ export async function hosts(): Promise<Host[]> {
   return r.hosts ?? []
 }
 
+async function postJSON<T>(path: string, body: unknown): Promise<T> {
+  const token = tokenStore.get()
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  })
+  if (res.status === 401) {
+    window.dispatchEvent(new Event('beacon:unauthorized'))
+    throw new ApiError(401, '未授权：token 无效或已过期')
+  }
+  if (!res.ok) {
+    const text = (await res.text()).trim()
+    throw new ApiError(res.status, text || res.statusText || `HTTP ${res.status}`)
+  }
+  if (res.status === 204) return undefined as T
+  return res.json() as Promise<T>
+}
+
+export async function silence(host: string, alert: string, duration = '1h'): Promise<void> {
+  await postJSON<void>('/api/v1/silences', { host, alert, duration })
+}
+
 export interface Alert {
   labels: LabelSet
   annotations: LabelSet

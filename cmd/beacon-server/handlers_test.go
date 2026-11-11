@@ -184,3 +184,38 @@ func TestAlertsProxyRequiresConfig(t *testing.T) {
 		t.Fatalf("status = %d, want 503", resp.StatusCode)
 	}
 }
+
+func TestSilenceAPI(t *testing.T) {
+	var called bool
+	am := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/silences" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		called = true
+		_, _ = w.Write([]byte(`{"silenceID":"x"}`))
+	}))
+	defer am.Close()
+
+	srv := NewServer(nil, nil, ServerOptions{AMURL: am.URL, EnrollToken: "admin"}, testLog())
+	ts := httptest.NewServer(srv.Routes())
+	defer ts.Close()
+
+	// Unauthenticated requests are rejected.
+	resp, _ := postJSON(t, ts.URL+"/api/v1/silences", silencePayload{Host: "h", Alert: "A"}, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no auth status = %d", resp.StatusCode)
+	}
+
+	auth := map[string]string{"Authorization": "Bearer admin"}
+
+	// Duration outside the allowed range is rejected before calling AM.
+	resp, _ = postJSON(t, ts.URL+"/api/v1/silences", silencePayload{Host: "h", Alert: "A", Duration: "48h"}, auth)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad duration status = %d", resp.StatusCode)
+	}
+
+	resp, _ = postJSON(t, ts.URL+"/api/v1/silences", silencePayload{Host: "h", Alert: "A", Duration: "1h"}, auth)
+	if resp.StatusCode != http.StatusNoContent || !called {
+		t.Fatalf("status = %d called=%v", resp.StatusCode, called)
+	}
+}

@@ -121,3 +121,20 @@ func (s *EventStore) Query(ctx context.Context, host, typ string, since time.Tim
 	}
 	return out, total, rows.Err()
 }
+
+// Prune deletes events older than the retention horizon.
+func (s *EventStore) Prune(ctx context.Context, before time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM events WHERE ts < ?`, before.UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// Vacuum reclaims disk space after a large prune. It takes an exclusive lock,
+// so callers should only run it when enough rows were removed to matter.
+func (s *EventStore) Vacuum(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `VACUUM`)
+	return err
+}

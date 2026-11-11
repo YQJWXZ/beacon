@@ -29,6 +29,7 @@ func main() {
 	vmuiURL := fs.String("vmui-url", envOr("BEACON_VMUI_URL", "http://127.0.0.1:8428"), "VictoriaMetrics vmui base URL")
 	webDir := fs.String("web-dir", envOr("BEACON_WEB_DIR", "web/dist"), "dashboard asset directory")
 	publicURL := fs.String("public-url", envOr("BEACON_PUBLIC_URL", "http://127.0.0.1:8080"), "beacon-server URL reachable from a browser")
+	eventsRetention := fs.Duration("events-retention", envDuration("BEACON_EVENTS_RETENTION", 90*24*time.Hour), "how long audit events are kept")
 	snoozeSecret := fs.String("snooze-secret", envOr("BEACON_SNOOZE_SECRET", ""), "HMAC key for snooze links")
 	logLevel := fs.String("log-level", envOr("BEACON_LOG_LEVEL", "info"), "log level")
 	_ = fs.Parse(os.Args[1:])
@@ -91,6 +92,8 @@ func main() {
 	defer stop()
 
 	// Persist last-seen timestamps periodically instead of on every write.
+	go pruneLoop(ctx, events, *eventsRetention, log)
+
 	go func() {
 		t := time.NewTicker(time.Minute)
 		defer t.Stop()
@@ -141,4 +144,51 @@ func deriveSnoozeKey(secret, enrollToken string) []byte {
 		return sum[:]
 	}
 	return nil
+}
+
+// pruneLoop trims the audit table on startup and every six hours. Without it
+// the SQLite file grows forever, which is the one thing that degrades purely
+// with time.
+func pruneLoop(ctx context.Context, store *EventStore, retention time.Duration, log *slog.Logger) {
+	if retention <= 0 {
+		log.Info("event retention disabled")
+		return
+	}
+	run := func() {
+		cutoff := time.Now().Add(-retention)
+		n, err := store.Prune(ctx, cutoff)
+		if err != nil {
+			log.Warn("prune events", "err", err)
+			return
+		}
+		if n > 0 {
+			log.Info("pruned events", "deleted", n, "older_than", cutoff.Format(time.RFC3339))
+		}
+		if n > 1000 {
+			if err := store.Vacuum(ctx); err != nil {
+				log.Warn("vacuum events", "err", err)
+			}
+		}
+	}
+
+	run()
+	t := time.NewTicker(6 * time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			run()
+		}
+	}
+}
+
+func envDuration(key string, def time.Duration) time.Duration {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return def
 }

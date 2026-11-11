@@ -70,6 +70,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/query", s.handleQuery)
 	mux.HandleFunc("GET /api/v1/query_range", s.handleQueryRange)
 	mux.HandleFunc("GET /api/v1/alerts", s.handleAlerts)
+	mux.HandleFunc("POST /api/v1/silences", s.handleSilenceCreate)
 	mux.Handle("/", webui.Handler(s.webDir))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
