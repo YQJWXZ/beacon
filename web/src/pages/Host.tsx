@@ -201,7 +201,7 @@ function cpuOption(series: PromSeries[]): EChartsOption {
   return {
     tooltip: { trigger: 'axis', valueFormatter: (v) => (v as number).toFixed(1) + '%' },
     legend: { top: 0, right: 0 },
-    xAxis: { type: 'time' },
+    xAxis: { type: 'time', splitNumber: 4, axisLabel: { hideOverlap: true } },
     yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
     series: modes
       .map((mode, i) => {
@@ -225,7 +225,7 @@ function simpleOption(series: PromSeries[], name: string, scale: number): EChart
   const s = series[0]
   return {
     tooltip: { trigger: 'axis', valueFormatter: (v) => (v as number).toFixed(1) + '%' },
-    xAxis: { type: 'time' },
+    xAxis: { type: 'time', splitNumber: 4, axisLabel: { hideOverlap: true } },
     yAxis: { type: 'value', max: scale, axisLabel: { formatter: '{value}%' } },
     series: [
       {
@@ -241,11 +241,12 @@ function simpleOption(series: PromSeries[], name: string, scale: number): EChart
   }
 }
 
-function diskOption(series: PromSeries[]): EChartsOption {
+function diskOption(input: PromSeries[]): EChartsOption {
+  const series = dedupeDisks(input)
   return {
     tooltip: { trigger: 'axis', valueFormatter: (v) => (v as number).toFixed(1) + '%' },
     legend: { top: 0, right: 0 },
-    xAxis: { type: 'time' },
+    xAxis: { type: 'time', splitNumber: 4, axisLabel: { hideOverlap: true } },
     yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
     series: series.map((s, i) => ({
       name: s.metric.mount ?? 'disk',
@@ -268,7 +269,7 @@ function netOption(rx: PromSeries[], tx: PromSeries[]): EChartsOption {
       },
     },
     legend: { top: 0, right: 0 },
-    xAxis: { type: 'time' },
+    xAxis: { type: 'time', splitNumber: 4, axisLabel: { hideOverlap: true } },
     yAxis: { type: 'value', axisLabel: { formatter: (v: number) => (v >= 1e6 ? v / 1e6 + 'M' : v / 1e3 + 'K') } },
     series: [
       {
@@ -293,3 +294,17 @@ function netOption(rx: PromSeries[], tx: PromSeries[]): EChartsOption {
 }
 
 export { pct }
+
+// A bind mount and its parent often share a device; plotting both doubles the
+// legend without adding information. Keep the shortest mount name per device.
+function dedupeDisks(inSeries: PromSeries[]): PromSeries[] {
+  const best = new Map<string, PromSeries>()
+  for (const s of inSeries) {
+    const key = s.metric.device ?? s.metric.mount ?? '?'
+    const cur = best.get(key)
+    if (!cur || (s.metric.mount ?? '').length < (cur.metric.mount ?? '').length) {
+      best.set(key, s)
+    }
+  }
+  return [...best.values()]
+}

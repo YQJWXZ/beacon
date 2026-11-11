@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { EChartsOption } from 'echarts'
+import type { EChartsType } from 'echarts/core'
 import { echarts } from '../theme'
 
 interface Props {
@@ -10,7 +11,7 @@ interface Props {
 // Thin wrapper: ECharts owns rendering, React only feeds options and resizes.
 export function Chart({ option, height = 260 }: Props) {
   const ref = useRef<HTMLDivElement>(null)
-  const chart = useRef<echarts.ECharts | null>(null)
+  const chart = useRef<EChartsType | null>(null)
 
   useEffect(() => {
     if (!ref.current) return

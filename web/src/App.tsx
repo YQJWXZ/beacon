@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { tokenStore } from './api'
 import { Nav } from './components/ui'
 import { AlertsPage } from './pages/Alerts'
 import { EventsPage } from './pages/Events'
-import { HostPage } from './pages/Host'
 import { Login } from './pages/Login'
 import { Overview } from './pages/Overview'
 
@@ -36,14 +35,18 @@ export function App() {
     )
   }
 
-  const hostMatch = path.match(/^\/host\/(.+)$/)
+  const HostPage = lazy(() => import('./pages/Host').then((m) => ({ default: m.HostPage })))
+
+const hostMatch = path.match(/^\/host\/(.+)$/)
 
   return (
     <div className="shell">
       <Nav path={path} />
       <main className="main">
         {hostMatch ? (
-          <HostPage host={decodeURIComponent(hostMatch[1])} />
+          <Suspense fallback={<div className="empty">加载图表…</div>}>
+            <HostPage host={decodeURIComponent(hostMatch[1])} />
+          </Suspense>
         ) : path.startsWith('/alerts') ? (
           <AlertsPage />
         ) : path.startsWith('/events') ? (
