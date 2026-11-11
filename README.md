@@ -32,6 +32,10 @@
 └──────────────────┘            └──────────────────────────┘
 ```
 
+## 技术栈
+
+Go 1.27（静态单二进制）· VictoriaMetrics · vmalert · Alertmanager · Grafana（v0.3）。选型理由见 [SPEC.md](SPEC.md) ADR-003。
+
 ## 状态
 
 方案阶段（v0.1 草案）。代码尚未开始，等待 [SPEC.md](SPEC.md) 第 13 节"待确认"项拍板。
