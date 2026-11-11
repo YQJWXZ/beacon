@@ -1,0 +1,4 @@
+Ip: Forwarding DefaultTTL InReceives InHdrErrors
+Ip: 1 64 100000 0
+Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts InCsumErrors
+Tcp: 1 200 120000 -1 5000 4000 10 20 30 900000 800000 1200 0 50 0

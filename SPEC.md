@@ -279,6 +279,16 @@ beacon_<domain>_<name>_<unit>{host, ...}
 
 价值标记：★★★ 必须有 · ★★ 强烈建议 · ★ 可选
 
+### 5.0 M0 已实现范围
+
+已落地：`cpu` / `mem` / `net` / `disk` 四个采集器、能力探测、本地 `/metrics` 端点。
+与下文表格的已知差异：
+
+- CPU 使用率为**全核聚合**，per-core 暂未开启（序列预算考虑，需要时加配置项）
+- 磁盘 IOPS 用 gauge `beacon_disk_iops{op}`，`await` / `util` 为区间计算值（需要两次采样）
+- 挂载点默认过滤 `/run`、容器层等噪音（`agent.disk_mount_exclude`，默认值与 node_exporter 思路一致）
+- 尚未实现：进程 Top、SMART、DNS 探测、防火墙、端口、流量画像（按里程碑推进）
+
 ### 5.1 CPU
 
 | 指标 | 来源 | 频率 | 价值 | 说明 |
@@ -315,7 +325,7 @@ beacon_<domain>_<name>_<unit>{host, ...}
 | `beacon_disk_readonly{mount}` | /proc/mounts | 60s | ★★★ | 文件系统因错误转只读是 P0 |
 | `beacon_disk_predict_full_seconds{mount}` | 7 天线性回归 | 60s | ★★★ | 比"当前 85%"有用得多：剩 6 小时 vs 剩 3 个月，处理优先级天差地别 |
 | `beacon_disk_read/write_bytes_total` | /proc/diskstats | 15s | ★★ | |
-| `beacon_disk_iops_total{op}` | /proc/diskstats | 15s | ★★ | |
+| `beacon_disk_iops{op}` | /proc/diskstats | 15s | ★★ | 区间计算值，gauge |
 | `beacon_disk_await_seconds{device}` | /proc/diskstats | 15s | ★★★ | 云盘 IOPS 被打满时 await 会飙升，是最直接的证据 |
 | `beacon_disk_util_ratio{device}` | /proc/diskstats | 15s | ★★ | |
 | `beacon_disk_io_errors_total` | dmesg | 60s | ★★ | |

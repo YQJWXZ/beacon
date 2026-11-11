@@ -1,0 +1,40 @@
+# beacon agent configuration.
+# Precedence: defaults < this file < environment variables < command line flags.
+# Copy to /etc/beacon/agent.yaml and adjust.
+
+agent:
+  # Stable identity used as the "host" label. Empty means: cloud instance id
+  # when available, otherwise /etc/machine-id. Never use an IP here.
+  host: ""
+
+  # Roots are configurable so the agent can be exercised against fixtures.
+  procfs: /proc
+  sysfs: /sys
+
+  # One-shot probe of the cloud metadata service at startup.
+  metadata_probe: true
+
+  intervals:
+    fast: 5s     # CPU, memory, network
+    normal: 15s  # disk I/O, PSI
+    slow: 60s    # filesystem capacity, firewall, ports (M2)
+
+  metrics:
+    # The debug endpoint is loopback-only by design. The agent never listens
+    # on a routable address.
+    enabled: true
+    listen: 127.0.0.1:9100
+
+transport:
+  kind: http
+  # Center endpoint. Empty in M0: the agent collects but does not ship.
+  endpoint: ""
+  # Dialer: direct | system | tsnet | proxy | unix.
+  # "system" transparently uses Tailscale when the host is in a tailnet.
+  dial: direct
+  token: ""
+  timeout: 10s
+
+log:
+  level: info   # debug | info | warn | error
+  format: text  # text | json

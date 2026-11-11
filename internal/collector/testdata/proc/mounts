@@ -1,0 +1,6 @@
+/dev/mapper/root / ext4 rw,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec 0 0
+sysfs /sys sysfs rw,nosuid 0 0
+tmpfs /run tmpfs rw,nosuid,nodev 0 0
+/dev/sda1 /boot ext4 ro,relatime 0 0
+/dev/sdb1 /mnt/missing ext4 rw,relatime 0 0

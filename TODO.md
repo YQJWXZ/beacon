@@ -18,23 +18,25 @@ M6 及以后不属于 MVP。
 
 ## M0 · 骨架与采集（0.5 天）
 
-- [ ] **T-001** 项目骨架：`cmd/beacon`、`internal/{collector,config,detector,transport,store}`、`go.mod`、`Makefile`、版本注入
+> 状态：已完成（2026-11-11）。`beacon agent run --once` 输出 186 条序列，`go test ./...` 全绿。
+
+- [x] **T-001** 项目骨架：`cmd/beacon`、`internal/{collector,config,detector,transport,store}`、`go.mod`、`Makefile`、版本注入
   - Done when：`make build` 产出单二进制，`beacon version` 打印 git sha 与构建时间
-- [ ] **T-002** 配置系统：YAML + 环境变量 + flag 三层优先级，启动校验，脱敏打印
+- [x] **T-002** 配置系统：YAML + 环境变量 + flag 三层优先级，启动校验，脱敏打印
   - Done when：`beacon config check` 能指出缺失项与非法值，且绝不打印 token
-- [ ] **T-003** ∥ `collector/host/cpu`：分 mode 使用率、steal、load、PSI、上下文切换
+- [x] **T-003** ∥ `collector/host/cpu`：分 mode 使用率、steal、load、PSI、上下文切换
   - Done when：与 `top`/`mpstat` 对比偏差 < 2%（SPEC §12）
-- [ ] **T-004** ∥ `collector/host/mem`：available/used/cached/slab、swap in/out、PSI、dirty/writeback
+- [x] **T-004** ∥ `collector/host/mem`：available/used/cached/slab、swap in/out、PSI、dirty/writeback
   - Done when：与 `free -b` 对比偏差 < 2%
-- [ ] **T-005** ∥ `collector/host/disk`：statfs 容量/inode/只读、diskstats 吞吐/IOPS/await/util
+- [x] **T-005** ∥ `collector/host/disk`：statfs 容量/inode/只读、diskstats 吞吐/IOPS/await/util
   - Done when：与 `df -i`、`iostat` 对比偏差 < 2%；inode 与容量分别可见
-- [ ] **T-006** ∥ `collector/host/net`：每接口 bytes/packets/errors/drops、TCP 状态、conntrack
+- [x] **T-006** ∥ `collector/host/net`：每接口 bytes/packets/errors/drops、TCP 状态、conntrack
   - Done when：速率与 `sar -n DEV 1` 一致；conntrack 读失败时降级不报错
-- [ ] **T-007** 指标注册与本地端点：Prometheus 文本格式，仅监听 `127.0.0.1`，可关闭
+- [x] **T-007** 指标注册与本地端点：Prometheus 文本格式，仅监听 `127.0.0.1`，可关闭
   - Done when：`curl 127.0.0.1:9100/metrics` 输出符合命名规范；序列数 ≤ 800
-- [ ] **T-008** 能力探测：`nft`/`ss`/`auditd`/元数据可达性/`/proc/pressure` 是否存在
+- [x] **T-008** 能力探测：`nft`/`ss`/`auditd`/元数据可达性/`/proc/pressure` 是否存在
   - Done when：缺失项上报 `available=0` 并跳过，进程不退出（ADR-005）
-- [ ] **T-009** 采集器测试：用固定 `/proc` 样本目录（`testdata/`）跑解析，断言数值
+- [x] **T-009** 采集器测试：用固定 `/proc` 样本目录（`testdata/`）跑解析，断言数值
   - Done when：`make test` 在无 root、无 nft 的环境下全绿
 
 ## M1 · 上报链路（2 天）

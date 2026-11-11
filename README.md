@@ -7,6 +7,22 @@
 - **指标走 Prometheus 协议**，不锁死私有格式
 - 存储/查询/图形/通知复用成熟组件，自研只做三件没人做好的事
 
+## 快速开始
+
+```bash
+make build
+./bin/beacon agent check          # 能力探测：nft / ss / psi / conntrack / metadata
+./bin/beacon agent run --once     # 采集一次，打印 Prometheus 文本格式
+./bin/beacon agent run            # 常驻，指标在 127.0.0.1:9100/metrics
+```
+
+国内网络下 `proxy.golang.org` 不通，Makefile 已默认 `GOPROXY=https://goproxy.cn,direct`。
+
+## 状态
+
+M0 已完成：四个采集器（CPU/内存/网络/磁盘）、能力探测、本地 `/metrics`，186 条序列。
+M1（出站上报）进行中。MVP 不包含 Grafana，告警渠道只做飞书。
+
 ## 文档
 
 | 文档 | 内容 |
@@ -37,8 +53,3 @@
 
 Go 1.27（静态单二进制）· VictoriaMetrics · vmalert · Alertmanager · Grafana（v0.3）。选型理由见 [SPEC.md](SPEC.md) ADR-003。
 
-## 状态
-
-方案已定稿，进入 MVP 开发（见 [TODO.md](TODO.md)）。MVP 不包含 Grafana：
-先用 VictoriaMetrics 自带的 vmui + CLI，M5 按三条标准评审后再决定是否引入。
-告警渠道只做飞书。
