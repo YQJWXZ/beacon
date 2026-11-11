@@ -11,8 +11,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/prometheus/prompb"
+
 	"github.com/yqjwxz/beacon/internal/agent"
 	"github.com/yqjwxz/beacon/internal/config"
+	"github.com/yqjwxz/beacon/internal/promwrite"
+	"github.com/yqjwxz/beacon/internal/transport"
 	"github.com/yqjwxz/beacon/internal/version"
 )
 
@@ -23,6 +27,8 @@ Usage:
   beacon config check   [-config path]
   beacon agent run      [-config path] [-once] [-metrics-listen addr] [-log-level level]
   beacon agent check    [-config path]
+  beacon agent enroll   -server url -token token [-config path]
+  beacon transport test [-config path]
 
 Flags:
   -config         path to YAML config (default: none, built-in defaults)
@@ -42,6 +48,8 @@ func main() {
 		err = cmdConfig(os.Args[2:])
 	case "agent":
 		err = cmdAgent(os.Args[2:])
+	case "transport":
+		err = cmdTransport(os.Args[2:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -128,9 +136,104 @@ func cmdAgent(args []string) error {
 		return cmdAgentRun(args[1:])
 	case "check":
 		return cmdAgentCheck(args[1:])
+	case "enroll":
+		return cmdAgentEnroll(args[1:])
 	default:
 		return fmt.Errorf("unknown agent subcommand %q", args[0])
 	}
+}
+
+func cmdAgentEnroll(args []string) error {
+	fs := flag.NewFlagSet("agent enroll", flag.ContinueOnError)
+	path := fs.String("config", "", "path to YAML config")
+	server := fs.String("server", "", "beacon-server base URL, e.g. http://127.0.0.1:8080")
+	token := fs.String("token", "", "one-time enrollment token")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *server == "" || *token == "" {
+		return fmt.Errorf("both -server and -token are required")
+	}
+	cfg, err := loadConfig(*path, nil)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cred, err := agent.Enroll(ctx, *server, *token, cfg.Agent.Host, version.Version)
+	if err != nil {
+		return err
+	}
+	if err := agent.SaveCredentials(cfg.Agent.StateDir, cred); err != nil {
+		return err
+	}
+	fmt.Printf("enrolled host %s (id %s)\ncredentials written to %s/cred.json\n", cred.Host, cred.ID, cfg.Agent.StateDir)
+	return nil
+}
+
+func cmdTransport(args []string) error {
+	if len(args) == 0 || args[0] != "test" {
+		return fmt.Errorf("usage: beacon transport test [-config path]")
+	}
+	fs := flag.NewFlagSet("transport test", flag.ContinueOnError)
+	path := fs.String("config", "", "path to YAML config")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	cfg, err := loadConfig(*path, nil)
+	if err != nil {
+		return err
+	}
+	if cfg.Transport.Endpoint == "" {
+		return fmt.Errorf("transport.endpoint is empty")
+	}
+
+	payload, err := promwrite.Marshal([]prompb.TimeSeries{
+		promwrite.Gauge("beacon_transport_test", map[string]string{"host": cfg.Agent.Host}, 1, time.Now().UnixMilli()),
+	})
+	if err != nil {
+		return err
+	}
+
+	// Enrollment credentials take precedence over a static config token.
+	token := cfg.Transport.Token
+	if token == "" {
+		if c, err := agent.LoadCredentials(cfg.Agent.StateDir); err == nil {
+			token = c.Token
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	results := transport.Probe(ctx, transport.Config{
+		Endpoint: cfg.Transport.Endpoint,
+		Token:    token,
+		Dial:     cfg.Transport.Dial,
+		ProxyURL: cfg.Transport.ProxyURL,
+		Timeout:  cfg.Transport.Timeout.D(),
+	}, payload)
+
+	ok := true
+	for _, r := range results {
+		status := "ok"
+		if !r.OK {
+			status = "FAIL"
+			ok = false
+		}
+		fmt.Printf("%-10s %-6s %8s", r.Name, status, r.Duration.Round(time.Millisecond))
+		if r.Err != nil {
+			fmt.Printf("  %v", r.Err)
+		}
+		fmt.Println()
+		if !r.OK {
+			break
+		}
+	}
+	if !ok {
+		return fmt.Errorf("transport test failed")
+	}
+	return nil
 }
 
 func cmdAgentRun(args []string) error {
@@ -155,7 +258,10 @@ func cmdAgentRun(args []string) error {
 		return err
 	}
 	log := newLogger(cfg.Log.Level, cfg.Log.Format)
-	a := agent.New(cfg, log)
+	a, err := agent.New(cfg, log)
+	if err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -180,7 +286,10 @@ func cmdAgentCheck(args []string) error {
 		return err
 	}
 	log := newLogger("error", cfg.Log.Format)
-	a := agent.New(cfg, log)
+	a, err := agent.New(cfg, log)
+	if err != nil {
+		return err
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

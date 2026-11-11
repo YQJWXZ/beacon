@@ -41,23 +41,25 @@ M6 及以后不属于 MVP。
 
 ## M1 · 上报链路（2 天）
 
-- [ ] **T-101** `Transport` 接口 + `direct` / `unix` dialer
+> 状态：已完成（2026-11-11）。实测 60s 断网缓冲 51 KB，恢复后 3s 排空，窗口内心跳样本完整补传。
+
+- [x] **T-101** `Transport` 接口 + `direct` / `unix` dialer
   - Done when：换 dialer 只改配置；`beacon transport test` 报告 DNS/TCP/TLS/认证/写入五层结果
-- [ ] **T-102** WAL 环形缓冲：崩溃安全、容量上限、保留采集时间戳
+- [x] **T-102** WAL 环形缓冲：崩溃安全、容量上限、保留采集时间戳
   - Done when：`kill -9` 后重启，已入 WAL 的样本不丢、不重复
-- [ ] **T-103** Shipper：`remote_write` protobuf + snappy，批量/重试/背压
+- [x] **T-103** Shipper：`remote_write` protobuf + snappy，批量/重试/背压
   - Done when：中心不可达时不阻塞采集，内存不增长（pprof 验证）
-- [ ] **T-104** 注册与凭证：一次性 enroll token 换长期 token，落盘 `0600`
+- [x] **T-104** 注册与凭证：一次性 enroll token 换长期 token，落盘 `0600`
   - Done when：token 泄漏可用中心侧吊销，agent 收到 401 后停止重试并本地告警
-- [ ] **T-105** 心跳与 `last_seen`
+- [x] **T-105** 心跳与 `last_seen`
   - Done when：拔网线 2 分钟后中心可判定离线（为 T-301 的 P0 规则供数）
-- [ ] **T-106** systemd unit + `install.sh` + `uninstall.sh`
+- [x] **T-106** systemd unit + `install.sh` + `uninstall.sh`
   - Done when：新机器一条命令装完，重启后自动恢复
-- [ ] **T-107** 中心 `docker-compose.yml`：VM + vmalert + alertmanager + beacon-server
+- [x] **T-107** 中心 `docker-compose.yml`：VM + vmalert + alertmanager + beacon-server
   - Done when：`docker compose up -d` 后 8428/9093/8080 可用，`vmui` 能查到数据
-- [ ] **T-108** `beacon transport test` 子命令（含 `dial=system` 的 tailnet 场景）
+- [x] **T-108** `beacon transport test` 子命令（含 `dial=system` 的 tailnet 场景）
   - Done when：同一二进制、只改 endpoint 与 dial，即可从 tailnet 内上报（SPEC §12）
-- [ ] **T-109** 端到端断网演练脚本
+- [x] **T-109** 端到端断网演练脚本
   - Done when：断网 1 小时恢复后，数据无缺口且时间戳为采集时刻
 
 ## M2 · 审计（2 天）

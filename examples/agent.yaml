@@ -25,13 +25,22 @@ agent:
     enabled: true
     listen: 127.0.0.1:9100
 
+  # Store-and-forward buffer: survives restarts and network outages.
+  state_dir: /var/lib/beacon
+  heartbeat: 30s
+  wal:
+    max_bytes: 67108864      # 64 MiB
+    segment_bytes: 1048576   # 1 MiB
+
 transport:
   kind: http
-  # Center endpoint. Empty in M0: the agent collects but does not ship.
+  # Center endpoint, e.g. http://127.0.0.1:8080/api/v1/write
+  # Empty means: collect and expose /metrics, but do not ship.
   endpoint: ""
   # Dialer: direct | system | tsnet | proxy | unix.
   # "system" transparently uses Tailscale when the host is in a tailnet.
   dial: direct
+  proxy_url: ""
   token: ""
   timeout: 10s
 

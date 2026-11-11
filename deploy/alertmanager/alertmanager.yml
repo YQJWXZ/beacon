@@ -1,0 +1,12 @@
+# M1 keeps routing minimal on purpose: no receiver is wired yet, so a broken
+# alerting path is obvious instead of silently dropping alerts.
+# M3 replaces `noop` with a webhook to beacon-server /hooks/alert (Feishu).
+route:
+  receiver: noop
+  group_by: [host, kind]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: noop

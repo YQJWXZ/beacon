@@ -17,8 +17,13 @@ export GOPROXY ?= https://goproxy.cn,direct
 
 all: build
 
-build:
+build: build-agent build-server
+
+build-agent:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/beacon
+
+build-server:
+	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/beacon-server ./cmd/beacon-server
 
 test:
 	go test ./...

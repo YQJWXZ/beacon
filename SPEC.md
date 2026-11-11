@@ -279,9 +279,11 @@ beacon_<domain>_<name>_<unit>{host, ...}
 
 价值标记：★★★ 必须有 · ★★ 强烈建议 · ★ 可选
 
-### 5.0 M0 已实现范围
+### 5.0 已实现范围
 
-已落地：`cpu` / `mem` / `net` / `disk` 四个采集器、能力探测、本地 `/metrics` 端点。
+- **M0**：`cpu` / `mem` / `net` / `disk` 四个采集器、能力探测、本地 `/metrics`
+- **M1**：WAL 存储转发、`remote_write` 编码、Transport（direct/system/unix/proxy）、主机注册、心跳、`beacon-server` 网关、systemd 与 compose
+
 与下文表格的已知差异：
 
 - CPU 使用率为**全核聚合**，per-core 暂未开启（序列预算考虑，需要时加配置项）
@@ -462,7 +464,7 @@ L ∩ S - R        → 以为开了其实不通（业务故障的常见原因）
 | `beacon_time_offset_seconds` | ★★★ | 时间漂移会导致日志与告警时间线错乱，且 TLS 失败 |
 | `beacon_kernel_version_info` | ★ | 补丁漂移 |
 | `beacon_open_fd_ratio` / `beacon_pid_count` | ★★ | 句柄泄漏、进程数暴涨 |
-| `beacon_agent_up` / `beacon_agent_collect_duration_seconds` / `beacon_buffer_bytes` | ★★★ | **监控自己**，否则采集挂了没人知道 |
+| `beacon_agent_up` / `beacon_agent_heartbeat` / `beacon_agent_collect_duration_seconds` / `beacon_agent_buffer_bytes` | ★★★ | **监控自己**，否则采集挂了没人知道 |
 
 ### 5.11 云主机上下文（可选适配器，默认留空）
 
@@ -701,10 +703,19 @@ Docker Compose（MVP，不含 Grafana）：
 victoriametrics + vmalert + alertmanager + beacon-server
 ```
 
-`beacon-server` 承担三件事：主机注册与凭证、Alertmanager webhook → 飞书、审计明细查询 API。
-Grafana 只在 M5 决策门通过后加入，不预先安装。
+- `victoriametrics` 只绑定 `127.0.0.1:8428`，不直接对外
+- `beacon-server` 是唯一入口：`/api/v1/enroll` 换发长期凭证，`/api/v1/write` 校验 token 后转发给 VM
+- 写入口会校验每条序列的 `host` 标签与 token 所属主机一致，**一台被入侵的机器不能污染另一台的数据**
+- `beacon-server` 还承担：Alertmanager webhook → 飞书（M3）、审计明细查询 API（M2）
+- Grafana 只在 M5 决策门通过后加入，不预先安装
 
-### 10.3 资源预算
+### 10.3 存储转发语义
+
+- **at-least-once**：ack 落盘后才推进读位置；崩溃重启可能重复发送最后一批，Prometheus 语义下同时间戳同值重复无害
+- **背压**：中心不可用时只增长 WAL，不阻塞采集；超过 64MB 才丢弃最旧的未确认段并记日志
+- **离线判定**：心跳指标 `beacon_agent_heartbeat` 每 30s 一次，规则 `time() - beacon_agent_heartbeat > 120` 即为主机失联
+
+### 10.4 资源预算
 
 | 组件 | 内存 | CPU | 磁盘 |
 |---|---|---|---|

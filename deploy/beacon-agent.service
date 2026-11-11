@@ -1,0 +1,25 @@
+[Unit]
+Description=beacon agent (host and network observability)
+Documentation=https://github.com/yqjwxz/beacon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/beacon agent run --config /etc/beacon/agent.yaml
+Restart=always
+RestartSec=5
+# Root is required for nftables and socket ownership, not for privileges:
+# the agent never listens, never executes shell strings and never writes
+# outside its state directory.
+User=root
+NoNewPrivileges=true
+ProtectHome=read-only
+ProtectSystem=full
+PrivateTmp=true
+PrivateDevices=false
+ReadWritePaths=/var/lib/beacon /etc/beacon
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

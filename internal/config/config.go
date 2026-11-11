@@ -49,8 +49,17 @@ type Agent struct {
 	MetadataProbe bool `yaml:"metadata_probe"`
 	// DiskMountExclude drops noisy mounts (container layers, cgroup, /run/*).
 	DiskMountExclude string    `yaml:"disk_mount_exclude"`
+	StateDir         string    `yaml:"state_dir"`
+	Heartbeat        Duration  `yaml:"heartbeat"`
+	WAL              WALConfig `yaml:"wal"`
 	Intervals        Intervals `yaml:"intervals"`
 	Metrics          Metrics   `yaml:"metrics"`
+}
+
+// WALConfig bounds the local store-and-forward buffer.
+type WALConfig struct {
+	MaxBytes     int64 `yaml:"max_bytes"`
+	SegmentBytes int64 `yaml:"segment_bytes"`
 }
 
 // DefaultDiskMountExclude matches node_exporter's noise filter philosophy:
@@ -72,6 +81,7 @@ type Transport struct {
 	Kind     string   `yaml:"kind"`
 	Endpoint string   `yaml:"endpoint"`
 	Dial     string   `yaml:"dial"`
+	ProxyURL string   `yaml:"proxy_url"`
 	Token    string   `yaml:"token"`
 	Timeout  Duration `yaml:"timeout"`
 }
@@ -86,6 +96,9 @@ func Default() *Config {
 		Agent: Agent{
 			MetadataProbe:    true,
 			DiskMountExclude: DefaultDiskMountExclude,
+			StateDir:         "/var/lib/beacon",
+			Heartbeat:        Duration(30 * time.Second),
+			WAL:              WALConfig{MaxBytes: 64 << 20, SegmentBytes: 1 << 20},
 			Intervals: Intervals{
 				Fast:   Duration(5 * time.Second),
 				Normal: Duration(15 * time.Second),
@@ -141,12 +154,14 @@ func applyEnv(c *Config) {
 	set("BEACON_AGENT_HOST", &c.Agent.Host)
 	set("BEACON_PROCFS", &c.Agent.ProcFS)
 	set("BEACON_SYSFS", &c.Agent.SysFS)
+	set("BEACON_STATE_DIR", &c.Agent.StateDir)
 	set("BEACON_METRICS_LISTEN", &c.Agent.Metrics.Listen)
 	set("BEACON_LOG_LEVEL", &c.Log.Level)
 	set("BEACON_LOG_FORMAT", &c.Log.Format)
 	set("BEACON_TRANSPORT_ENDPOINT", &c.Transport.Endpoint)
 	set("BEACON_TRANSPORT_TOKEN", &c.Transport.Token)
 	set("BEACON_TRANSPORT_DIAL", &c.Transport.Dial)
+	set("BEACON_TRANSPORT_PROXY_URL", &c.Transport.ProxyURL)
 
 	if v, ok := os.LookupEnv("BEACON_METRICS_ENABLED"); ok {
 		c.Agent.Metrics.Enabled = v == "1" || strings.EqualFold(v, "true")
@@ -171,6 +186,15 @@ func DetectHostID() string {
 func (c *Config) Validate() error {
 	if c.Agent.Intervals.Fast.D() <= 0 || c.Agent.Intervals.Normal.D() <= 0 || c.Agent.Intervals.Slow.D() <= 0 {
 		return fmt.Errorf("all intervals must be positive")
+	}
+	if c.Agent.Heartbeat.D() <= 0 {
+		return fmt.Errorf("agent.heartbeat must be positive")
+	}
+	if c.Agent.WAL.MaxBytes <= 0 || c.Agent.WAL.SegmentBytes <= 0 {
+		return fmt.Errorf("agent.wal sizes must be positive")
+	}
+	if c.Agent.WAL.MaxBytes < c.Agent.WAL.SegmentBytes {
+		return fmt.Errorf("agent.wal.max_bytes must be >= segment_bytes")
 	}
 	if c.Agent.Metrics.Enabled {
 		if _, _, err := net.SplitHostPort(c.Agent.Metrics.Listen); err != nil {

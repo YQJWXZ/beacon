@@ -1,0 +1,23 @@
+groups:
+  - name: beacon-m1
+    interval: 15s
+    rules:
+      # The heartbeat is the only reliable "host is alive" signal in a push
+      # model: if the agent dies, the last value simply stops advancing.
+      - alert: BeaconAgentDown
+        expr: time() - beacon_agent_heartbeat > 120
+        labels:
+          severity: P0
+          kind: agent_down
+        annotations:
+          summary: "{{ $labels.host }} stopped reporting"
+          description: "No heartbeat for more than 2 minutes."
+
+      - alert: BeaconDiskFull
+        expr: beacon_disk_used_ratio > 0.95
+        for: 2m
+        labels:
+          severity: P0
+          kind: disk_full
+        annotations:
+          summary: "{{ $labels.host }} filesystem {{ $labels.mount }} is {{ $value | humanizePercentage }} full"

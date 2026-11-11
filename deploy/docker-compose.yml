@@ -1,0 +1,71 @@
+# Center stack for beacon (M1).
+#
+#   export BEACON_ENROLL_TOKEN=$(openssl rand -hex 16)
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# Only 127.0.0.1 is published. Remote agents reach the center through
+# Tailscale or an SSH tunnel; the agent's transport layer does not care which.
+
+services:
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.156.0
+    command:
+      - -storageDataPath=/var/lib/victoria-metrics
+      - -retentionPeriod=30d
+      - -httpListenAddr=:8428
+      - -selfScrapeInterval=30s
+    volumes:
+      - vm-data:/var/lib/victoria-metrics
+    ports:
+      - "127.0.0.1:8428:8428"
+    restart: unless-stopped
+
+  beacon-server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      BEACON_SERVER_LISTEN: 0.0.0.0:8080
+      BEACON_VM_URL: http://victoriametrics:8428/api/v1/write
+      BEACON_ENROLL_TOKEN: ${BEACON_ENROLL_TOKEN:?set BEACON_ENROLL_TOKEN}
+      BEACON_DATA_DIR: /data
+    volumes:
+      - server-data:/data
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - victoriametrics
+    restart: unless-stopped
+
+  vmalert:
+    image: victoriametrics/vmalert:v1.156.0
+    command:
+      - -datasource.url=http://victoriametrics:8428
+      - -remoteWrite.url=http://victoriametrics:8428
+      - -remoteRead.url=http://victoriametrics:8428
+      - -notifier.url=http://alertmanager:9093
+      - -rule=/etc/vmalert/rules.yml
+      - -evaluationInterval=15s
+    volumes:
+      - ./vmalert/rules.yml:/etc/vmalert/rules.yml:ro
+    depends_on:
+      - victoriametrics
+      - alertmanager
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - am-data:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    restart: unless-stopped
+
+volumes:
+  vm-data:
+  server-data:
+  am-data:

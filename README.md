@@ -18,10 +18,30 @@ make build
 
 国内网络下 `proxy.golang.org` 不通，Makefile 已默认 `GOPROXY=https://goproxy.cn,direct`。
 
+### 中心（M1）
+
+```bash
+export BEACON_ENROLL_TOKEN=$(openssl rand -hex 16)
+docker compose -f deploy/docker-compose.yml up -d
+curl -s localhost:8428/health        # VictoriaMetrics
+```
+
+### 被监控主机
+
+```bash
+./bin/beacon agent enroll -server http://<center>:8080 -token $BEACON_ENROLL_TOKEN
+BEACON_TRANSPORT_ENDPOINT=http://<center>:8080/api/v1/write ./bin/beacon agent run
+./bin/beacon transport test          # 逐层验证 DNS/TCP/TLS/认证/写入
+```
+
+断网演练：`./scripts/netloss-test.sh`（在中心侧运行，见脚本头部说明）。
+
 ## 状态
 
-M0 已完成：四个采集器（CPU/内存/网络/磁盘）、能力探测、本地 `/metrics`，186 条序列。
-M1（出站上报）进行中。MVP 不包含 Grafana，告警渠道只做飞书。
+M0 完成：CPU/内存/网络/磁盘采集、能力探测、本地 `/metrics`。
+M1 完成：传输抽象、WAL 存储转发、注册凭证、`beacon-server` 网关、systemd/安装脚本、中心 compose。
+
+实测：本机 60 秒断网缓冲 51 KB，恢复后 3 秒排空，断网窗口内的心跳样本被完整补传。
 
 ## 文档
 

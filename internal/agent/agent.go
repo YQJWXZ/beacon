@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"time"
@@ -20,6 +21,9 @@ import (
 	"github.com/yqjwxz/beacon/internal/collector"
 	"github.com/yqjwxz/beacon/internal/config"
 	"github.com/yqjwxz/beacon/internal/procfs"
+	"github.com/yqjwxz/beacon/internal/promwrite"
+	"github.com/yqjwxz/beacon/internal/shipper"
+	"github.com/yqjwxz/beacon/internal/transport"
 	"github.com/yqjwxz/beacon/internal/version"
 )
 
@@ -32,11 +36,15 @@ type Agent struct {
 	reg  *prometheus.Registry
 	cols []collector.Collector
 
-	mu     sync.Mutex
-	streak map[string]int
+	tr   transport.Transport
+	ship *shipper.Shipper
+
+	mu       sync.Mutex
+	streak   map[string]int
+	lastBeat time.Time
 }
 
-func New(cfg *config.Config, log *slog.Logger) *Agent {
+func New(cfg *config.Config, log *slog.Logger) (*Agent, error) {
 	src := procfs.New(cfg.Agent.ProcFS, cfg.Agent.SysFS)
 	a := &Agent{
 		cfg:    cfg,
@@ -58,7 +66,40 @@ func New(cfg *config.Config, log *slog.Logger) *Agent {
 	}
 	a.reg.MustRegister(a.self)
 	a.reg.MustRegister(capability.NewExporter(a.caps))
-	return a
+
+	if cfg.Transport.Endpoint != "" {
+		// A credential from enrollment wins over a static config token.
+		if cfg.Transport.Token == "" {
+			if c, err := LoadCredentials(cfg.Agent.StateDir); err == nil && c.Token != "" {
+				cfg.Transport.Token = c.Token
+				if cfg.Agent.Host == "" {
+					cfg.Agent.Host = c.Host
+				}
+			}
+		}
+		tr, err := transport.New(transport.Config{
+			Endpoint: cfg.Transport.Endpoint,
+			Token:    cfg.Transport.Token,
+			Dial:     cfg.Transport.Dial,
+			ProxyURL: cfg.Transport.ProxyURL,
+			Timeout:  cfg.Transport.Timeout.D(),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("transport: %w", err)
+		}
+		sh, err := shipper.New(shipper.Options{
+			Dir:      filepath.Join(cfg.Agent.StateDir, "wal"),
+			MaxBytes: cfg.Agent.WAL.MaxBytes,
+			SegSize:  cfg.Agent.WAL.SegmentBytes,
+			Batch:    200,
+		}, tr, log)
+		if err != nil {
+			return nil, fmt.Errorf("shipper: %w", err)
+		}
+		a.tr = tr
+		a.ship = sh
+	}
+	return a, nil
 }
 
 func (a *Agent) Capabilities() *capability.Set { return a.caps }
@@ -94,6 +135,24 @@ func (a *Agent) Run(ctx context.Context) error {
 		}(c)
 	}
 
+	if a.ship != nil {
+		a.log.Info("shipping enabled",
+			"endpoint", a.cfg.Transport.Endpoint,
+			"dial", a.cfg.Transport.Dial,
+			"wal", filepath.Join(a.cfg.Agent.StateDir, "wal"),
+		)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a.ship.Run(ctx)
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a.shipLoop(ctx)
+		}()
+	}
+
 	var srv *http.Server
 	if a.cfg.Agent.Metrics.Enabled {
 		ln, err := net.Listen("tcp", a.cfg.Agent.Metrics.Listen)
@@ -122,7 +181,66 @@ func (a *Agent) Run(ctx context.Context) error {
 		_ = srv.Shutdown(sctx)
 	}
 	wg.Wait()
+	if a.ship != nil {
+		if err := a.ship.Close(); err != nil {
+			a.log.Warn("close wal", "err", err)
+		}
+	}
+	if a.tr != nil {
+		_ = a.tr.Close()
+	}
 	return nil
+}
+
+// shipLoop snapshots the registry, encodes it and appends to the WAL. The
+// shipper drains the WAL independently, so a network outage never blocks
+// collection.
+func (a *Agent) shipLoop(ctx context.Context) {
+	t := time.NewTicker(a.cfg.Agent.Intervals.Fast.D())
+	defer t.Stop()
+	a.shipOnce(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.shipOnce(ctx)
+		}
+	}
+}
+
+func (a *Agent) shipOnce(ctx context.Context) {
+	if a.ship == nil {
+		return
+	}
+	mfs, err := a.reg.Gather()
+	if err != nil {
+		a.log.Warn("gather for shipping", "err", err)
+		return
+	}
+	ts := time.Now().UnixMilli()
+	series := promwrite.FromFamilies(mfs, ts)
+
+	a.mu.Lock()
+	beat := time.Since(a.lastBeat) >= a.cfg.Agent.Heartbeat.D()
+	if beat {
+		a.lastBeat = time.Now()
+	}
+	a.mu.Unlock()
+	if beat {
+		series = append(series, promwrite.Gauge("beacon_agent_heartbeat",
+			map[string]string{"host": a.cfg.Agent.Host}, float64(ts)/1000, ts))
+	}
+
+	payload, err := promwrite.Marshal(series)
+	if err != nil {
+		a.log.Warn("encode batch", "err", err)
+		return
+	}
+	if err := a.ship.Append(payload); err != nil {
+		a.log.Warn("append to wal", "err", err)
+	}
+	a.self.SetBufferBytes(float64(a.ship.BufferBytes()))
 }
 
 func (a *Agent) schedule(ctx context.Context, c collector.Collector) {

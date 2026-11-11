@@ -29,7 +29,10 @@ func testConfig(t *testing.T) *config.Config {
 
 func TestWriteMetricsExposition(t *testing.T) {
 	cfg := testConfig(t)
-	a := New(cfg, discardLogger())
+	a, err := New(cfg, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
 	a.Probe(context.Background())
 
 	var buf bytes.Buffer
@@ -53,7 +56,10 @@ func TestWriteMetricsExposition(t *testing.T) {
 
 func TestMetricNamesFollowConvention(t *testing.T) {
 	cfg := testConfig(t)
-	a := New(cfg, discardLogger())
+	a, err := New(cfg, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
 	a.Probe(context.Background())
 
 	var buf bytes.Buffer
