@@ -96,6 +96,7 @@ func TestAgentWithAuditRegistersCleanly(t *testing.T) {
 	cfg.Audit.Interval = config.Duration(0)
 	// Interval 0 is rejected by Validate; use a real one instead.
 	cfg.Audit.Interval = config.Duration(60 * time.Second)
+	cfg.Flow.Enabled = true
 
 	a, err := New(cfg, discardLogger())
 	if err != nil {

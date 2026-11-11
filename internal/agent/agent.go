@@ -42,6 +42,7 @@ type Agent struct {
 	tr   transport.Transport
 	ship *shipper.Shipper
 	ev   *eventlog.Log
+	sink audit.Sink
 
 	mu       sync.Mutex
 	streak   map[string]int
@@ -99,8 +100,30 @@ func New(cfg *config.Config, log *slog.Logger) (*Agent, error) {
 		a.ship = sh
 	}
 
+	sink := audit.Sink(audit.NopSink{})
+	if a.ship != nil && cfg.Transport.Endpoint != "" {
+		base := strings.TrimSuffix(cfg.Transport.Endpoint, "/api/v1/write")
+		ev, err := eventlog.New(filepath.Join(cfg.Agent.StateDir, "events"), base, cfg.Transport.Token, cfg.Agent.Host)
+		if err == nil {
+			a.ev = ev
+			sink = ev
+		} else {
+			a.log.Warn("event spool disabled", "err", err)
+		}
+	}
+	a.sink = sink
+
 	if cfg.Audit.Enabled {
 		a.buildAuditCollectors()
+	}
+	if cfg.Flow.Enabled {
+		a.cols = append(a.cols, collector.NewFlow(a.src, cfg.Agent.Host, cfg.Flow.Interval.D(), sink, collector.FlowOptions{
+			MaxEntries:       cfg.Flow.MaxEntries,
+			TopK:             cfg.Flow.TopK,
+			EgressMultiplier: cfg.Flow.EgressMultiplier,
+			Cooldown:         cfg.Flow.Cooldown.D(),
+			BaselinePath:     filepath.Join(cfg.Agent.StateDir, "flow", "baseline.json"),
+		}))
 	}
 
 	for _, c := range a.cols {
@@ -114,17 +137,7 @@ func New(cfg *config.Config, log *slog.Logger) (*Agent, error) {
 // buildAuditCollectors wires the firewall and port auditors. Without a center
 // the events go to a no-op sink; metrics still work.
 func (a *Agent) buildAuditCollectors() {
-	sink := audit.Sink(audit.NopSink{})
-	if a.ship != nil && a.cfg.Transport.Endpoint != "" {
-		base := strings.TrimSuffix(a.cfg.Transport.Endpoint, "/api/v1/write")
-		ev, err := eventlog.New(filepath.Join(a.cfg.Agent.StateDir, "events"), base, a.cfg.Transport.Token, a.cfg.Agent.Host)
-		if err == nil {
-			a.ev = ev
-			sink = ev
-		} else {
-			a.log.Warn("event spool disabled", "err", err)
-		}
-	}
+	sink := a.sink
 
 	sg := make([]audit.SGEntry, 0, len(a.cfg.Audit.SG.Entries))
 	for _, e := range a.cfg.Audit.SG.Entries {

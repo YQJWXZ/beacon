@@ -31,6 +31,7 @@ Usage:
   beacon transport test [-config path]
   beacon audit fw|ports|exposure [-config path] [--json]
   beacon notify test feishu [-webhook url] [-secret secret]
+  beacon flow          [-config path] [-top N] [--json]
 |ports|exposure [-config path] [--json]
 
 Flags:
@@ -57,6 +58,8 @@ func main() {
 		err = cmdAudit(os.Args[2:])
 	case "notify":
 		err = cmdNotify(os.Args[2:])
+	case "flow":
+		err = cmdFlow(os.Args[2:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:

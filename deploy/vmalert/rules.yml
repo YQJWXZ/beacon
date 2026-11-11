@@ -215,3 +215,56 @@ groups:
           summary: "{{ $labels.host }} IPv6 未被防火墙覆盖"
           description: "只配置了 IPv4 规则，IPv6 侧可能完全放通。"
           evidence: '{"ipv6_covered": {{ $value }}}'
+
+  - name: beacon-flow
+    interval: 15s
+    rules:
+      - alert: BeaconPortScanOut
+        expr: beacon_flow_anomaly_score{kind="port_scan_out"} > 0
+        labels:
+          severity: P0
+          kind: port_scan_out
+        annotations:
+          summary: "{{ $labels.host }} 正在对外扫描"
+          description: "短时间内连接了大量不同端口，主机可能已被控制。"
+          evidence: '{"unique_dst_ports": {{ $value }}}'
+
+      - alert: BeaconSSHBruteforce
+        expr: beacon_flow_anomaly_score{kind="ssh_bruteforce"} > 0
+        labels:
+          severity: P0
+          kind: ssh_bruteforce
+        annotations:
+          summary: "{{ $labels.host }} 正在被暴力破解"
+          description: "大量未完成的管理端口连接，来自不同来源地址。"
+          evidence: '{"unreplied_attempts": {{ $value }}}'
+
+      - alert: BeaconSuspiciousEgress
+        expr: beacon_flow_anomaly_score{kind="suspicious_dport"} > 0
+        labels:
+          severity: P0
+          kind: suspicious_dport
+        annotations:
+          summary: "{{ $labels.host }} 向可疑端口发起连接"
+          description: "出站流量命中了矿池/木马常用端口。"
+          evidence: '{"connections": {{ $value }}}'
+
+      - alert: BeaconPortScanIn
+        expr: beacon_flow_anomaly_score{kind="port_scan_in"} > 0
+        labels:
+          severity: P1
+          kind: port_scan_in
+        annotations:
+          summary: "{{ $labels.host }} 正在被端口扫描"
+          description: "短时间内大量未完成的入站连接，覆盖多个端口。"
+          evidence: '{"unique_dst_ports": {{ $value }}}'
+
+      - alert: BeaconEgressBurst
+        expr: beacon_flow_anomaly_score{kind="egress_burst"} > 0
+        labels:
+          severity: P1
+          kind: egress_burst
+        annotations:
+          summary: "{{ $labels.host }} 出站流量异常"
+          description: "出站带宽显著高于该时段的基线。"
+          evidence: '{"score": {{ $value }}}'

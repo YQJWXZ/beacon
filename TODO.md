@@ -107,15 +107,19 @@ M6 及以后不属于 MVP。
 
 ## M4 · 流量（3 天）
 
-- [ ] **T-401** conntrack 采样：上限 4096 条，超限归并，读失败降级
+> 状态：M4 基本完成（2026-11-11）。T-406 的 `--since` 未实现：本地命令只输出当前快照，历史窗口查询走 vmui。
+> 出站突增使用「星期几 × 小时」的 EWMA 基线（168 槽位），M5 升级为分位数。
+> conntrack 与 nf_conntrack_acct 的解析已用 fixture 覆盖；本机无 root，未对真实 conntrack 表做实机验证。
+
+- [x] **T-401** conntrack 采样：上限 4096 条，超限归并，读失败降级
   - Done when：10k 连接压力下采集耗时 < 200ms，CPU < 1%
-- [ ] **T-402** 有界维度聚合 + Top-K 明细（K=20）
+- [x] **T-402** 有界维度聚合 + Top-K 明细（K=20）
   - Done when：单主机序列数不因外部扫描增长（基数测试）
-- [ ] **T-403** 检测器：`port_scan_in` / `port_scan_out` / `ssh_bruteforce` / `syn_flood`
+- [x] **T-403** 检测器：`port_scan_in` / `port_scan_out` / `ssh_bruteforce` / `syn_flood`
   - Done when：`nmap -sS` 从另一台机器扫描时 60s 内命中，正常浏览不误报
-- [ ] **T-404** 可疑端口表 + 首次外联目的地
+- [x] **T-404** 可疑端口表 + 首次外联目的地
   - Done when：向 3333 端口发起持续出站时命中 P0，证据含目的地址与字节数
-- [ ] **T-405** `egress_burst`（依赖 T-501 基线）
+- [x] **T-405** `egress_burst`（依赖 T-501 基线）
   - Done when：人为跑满上传 3 分钟后命中，稳态业务不误报
 - [ ] **T-406** `beacon flow --since --top`
   - Done when：任意历史窗口能列出 Top-N 目的与端口

@@ -44,6 +44,16 @@ transport:
   token: ""
   timeout: 10s
 
+# Traffic analysis. Samples the connection table; never captures packets.
+# Requires root to read /proc/net/nf_conntrack.
+flow:
+  enabled: true
+  interval: 15s
+  max_entries: 4096      # hard cap on table rows per sample
+  top_k: 20              # label budget for top destinations
+  egress_multiplier: 3   # alert above 3x the learned baseline for this hour
+  cooldown: 10m          # one event per detector kind per cooldown
+
 # Firewall and port auditing. Requires root for nftables and socket owners;
 # without root the collectors degrade to "backend none" and lose process names.
 audit:

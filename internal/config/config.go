@@ -35,10 +35,11 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(), nil }
 
 type Config struct {
-	Agent     Agent     `yaml:"agent"`
-	Transport Transport `yaml:"transport"`
-	Audit     Audit     `yaml:"audit"`
-	Log       Log       `yaml:"log"`
+	Agent     Agent      `yaml:"agent"`
+	Transport Transport  `yaml:"transport"`
+	Audit     Audit      `yaml:"audit"`
+	Flow      FlowConfig `yaml:"flow"`
+	Log       Log        `yaml:"log"`
 }
 
 // Audit controls the firewall and port auditors.
@@ -144,6 +145,14 @@ func Default() *Config {
 			Interval: Duration(60 * time.Second),
 			Probe:    ProbeConfig{Timeout: Duration(1 * time.Second)},
 		},
+		Flow: FlowConfig{
+			Enabled:          true,
+			Interval:         Duration(15 * time.Second),
+			MaxEntries:       4096,
+			TopK:             20,
+			EgressMultiplier: 3,
+			Cooldown:         Duration(10 * time.Minute),
+		},
 		Log: Log{Level: "info", Format: "text"},
 	}
 }
@@ -197,6 +206,10 @@ func applyEnv(c *Config) {
 	set("BEACON_TRANSPORT_PROXY_URL", &c.Transport.ProxyURL)
 	set("BEACON_AUDIT_PUBLIC_IP", &c.Audit.Probe.PublicIP)
 
+	if v, ok := os.LookupEnv("BEACON_FLOW_ENABLED"); ok {
+		c.Flow.Enabled = v == "1" || strings.EqualFold(v, "true")
+	}
+
 	if v, ok := os.LookupEnv("BEACON_AUDIT_ENABLED"); ok {
 		c.Audit.Enabled = v == "1" || strings.EqualFold(v, "true")
 	}
@@ -245,6 +258,17 @@ func (c *Config) Validate() error {
 			if e.Port <= 0 || e.Port > 65535 {
 				return fmt.Errorf("audit.security_group entry has invalid port %d", e.Port)
 			}
+		}
+	}
+	if c.Flow.Enabled {
+		if c.Flow.Interval.D() <= 0 || c.Flow.Cooldown.D() <= 0 {
+			return fmt.Errorf("flow intervals must be positive")
+		}
+		if c.Flow.MaxEntries <= 0 || c.Flow.TopK <= 0 {
+			return fmt.Errorf("flow.max_entries and flow.top_k must be positive")
+		}
+		if c.Flow.EgressMultiplier <= 0 {
+			return fmt.Errorf("flow.egress_multiplier must be positive")
 		}
 	}
 	if c.Agent.Metrics.Enabled {
@@ -308,4 +332,14 @@ func (c *Config) Warnings() []string {
 		w = append(w, "metrics.listen is not loopback: metrics endpoint is exposed to the network")
 	}
 	return w
+}
+
+// FlowConfig bounds the traffic sampler. conntrack is sampled, never captured.
+type FlowConfig struct {
+	Enabled          bool     `yaml:"enabled"`
+	Interval         Duration `yaml:"interval"`
+	MaxEntries       int      `yaml:"max_entries"`
+	TopK             int      `yaml:"top_k"`
+	EgressMultiplier float64  `yaml:"egress_multiplier"`
+	Cooldown         Duration `yaml:"cooldown"`
 }

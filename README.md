@@ -76,12 +76,25 @@ BEACON_FEISHU_SECRET='...' \
 卡片包含：级别色条、主机、摘要、证据（JSON）、开始时间，以及两个按钮——
 「查看曲线」打开预置好查询的 vmui，「静默 1 小时」调用 Alertmanager API 创建 silence。
 
+### 流量分析（M4）
+
+需要 root（读 `/proc/net/nf_conntrack`）：
+
+```bash
+./bin/beacon flow            # 当前连接画像 + 检测结论
+./bin/beacon flow --json     # 机器可读
+```
+
+检测器：入向/出向端口扫描、SSH/RDP 爆破、可疑出站端口（矿池/木马）、出站流量突增（按小时学基线）。
+每个检测器 10 分钟内最多产生一条事件，避免刷屏。
+
 ## 状态
 
 M0 完成：CPU/内存/网络/磁盘采集、能力探测、本地 `/metrics`。
 M1 完成：传输抽象、WAL 存储转发、注册凭证、`beacon-server` 网关、systemd/安装脚本、中心 compose。
 M2 完成：防火墙四后端解析与 diff、端口审计、暴露面模型、事件入库（SQLite）、`beacon audit` CLI。
 M3 完成：vmalert 规则集、Alertmanager 路由/抑制、飞书卡片、去重限流、签名静默链接。
+M4 完成：conntrack 采样、有界聚合、扫描/爆破/可疑出站/出站突增检测、`beacon flow` CLI。
 
 实测：
 - 断网 60 秒缓冲 51 KB，恢复后 3 秒排空，窗口内心跳样本完整补传

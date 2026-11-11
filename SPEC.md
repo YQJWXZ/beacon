@@ -285,6 +285,7 @@ beacon_<domain>_<name>_<unit>{host, ...}
 - **M1**：WAL 存储转发、`remote_write` 编码、Transport（direct/system/unix/proxy）、主机注册、心跳、`beacon-server` 网关、systemd 与 compose
 - **M2**：防火墙四后端解析（nft / iptables / ufw / firewalld）、规则 diff、危险规则识别、端口快照与差分、暴露面模型、事件入库
 - **M3**：vmalert 规则集、Alertmanager 路由与抑制、飞书卡片（签名/证据/静默按钮）、去重限流
+- **M4**：conntrack 采样与有界聚合、规则型检测器（扫描/爆破/可疑出站/出站突增）、`beacon flow` CLI
 
 与下文表格的已知差异：
 
@@ -293,6 +294,14 @@ beacon_<domain>_<name>_<unit>{host, ...}
 - **外部可达性探测目前由 agent 自测**（拨号自己的公网 IP），不是中心侧探针；中心侧探针需要知道每台主机的公网地址与端口清单，推迟到 M6
 - 探测失败一律视为「未知」，不产生告警——避免 NAT 回环失败造成误报
 - 云安全组仍是手工声明（`audit.security_group`），provider 适配器保持占位
+
+M4 的实现差异：
+
+- 流量指标以代码为准：`beacon_flow_conns{dir}`、`beacon_flow_unreplied{dir}`、`beacon_flow_unique_dst_ports{dir}`、`beacon_flow_unique_sources_in`、`beacon_flow_dport_conns{dir,port}`（端口分桶）、`beacon_flow_top_destination_conns{dst}`、`beacon_flow_egress_bps`、`beacon_flow_egress_baseline_bps`
+- 每次采样上限 4096 条，超出部分不读取（但会计数），内存与 CPU 不随连接数增长
+- 只有 `nf_conntrack_acct=1` 时才有 per-connection 字节数；默认关闭，因此 Top-K 以连接数排序
+- 出站突增目前用「星期几 × 小时」的 EWMA 基线（168 个槽位），不是 SPEC §6.2 的 P50/P95/MAD；M5 升级
+- `beacon flow --since` 未实现：本地命令只给当前快照，历史查询走 vmui
 
 - CPU 使用率为**全核聚合**，per-core 暂未开启（序列预算考虑，需要时加配置项）
 - 磁盘 IOPS 用 gauge `beacon_disk_iops{op}`，`await` / `util` 为区间计算值（需要两次采样）
