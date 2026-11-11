@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"log/slog"
@@ -19,6 +20,12 @@ func main() {
 	vmURL := fs.String("vm-url", envOr("BEACON_VM_URL", "http://127.0.0.1:8428/api/v1/write"), "VictoriaMetrics remote-write URL")
 	dataDir := fs.String("data-dir", envOr("BEACON_DATA_DIR", "/var/lib/beacon-server"), "state directory")
 	enrollToken := fs.String("enroll-token", envOr("BEACON_ENROLL_TOKEN", ""), "one-time enrollment token")
+	feishuWebhook := fs.String("feishu-webhook", envOr("BEACON_FEISHU_WEBHOOK", ""), "Feishu custom-bot webhook URL")
+	feishuSecret := fs.String("feishu-secret", envOr("BEACON_FEISHU_SECRET", ""), "Feishu bot signing secret")
+	amURL := fs.String("alertmanager-url", envOr("BEACON_ALERTMANAGER_URL", "http://alertmanager:9093"), "Alertmanager base URL")
+	vmuiURL := fs.String("vmui-url", envOr("BEACON_VMUI_URL", "http://127.0.0.1:8428"), "VictoriaMetrics vmui base URL")
+	publicURL := fs.String("public-url", envOr("BEACON_PUBLIC_URL", "http://127.0.0.1:8080"), "beacon-server URL reachable from a browser")
+	snoozeSecret := fs.String("snooze-secret", envOr("BEACON_SNOOZE_SECRET", ""), "HMAC key for snooze links")
 	logLevel := fs.String("log-level", envOr("BEACON_LOG_LEVEL", "info"), "log level")
 	_ = fs.Parse(os.Args[1:])
 
@@ -51,9 +58,24 @@ func main() {
 	}
 	defer events.Close()
 
+	snoozeKey := deriveSnoozeKey(*snoozeSecret, *enrollToken)
+	var notifier *Notifier
+	if *feishuWebhook != "" {
+		notifier = NewNotifier(*feishuWebhook, *feishuSecret, *vmuiURL, *publicURL, snoozeKey)
+		log.Info("feishu notifications enabled", "signed", *feishuSecret != "")
+	} else {
+		log.Warn("no feishu webhook configured: alert deliveries will return 503")
+	}
+
 	srv := &http.Server{
-		Addr:              *listen,
-		Handler:           NewServer(store, events, *vmURL, *enrollToken, log).Routes(),
+		Addr: *listen,
+		Handler: NewServer(store, events, ServerOptions{
+			VMURL:       *vmURL,
+			EnrollToken: *enrollToken,
+			AMURL:       *amURL,
+			Notifier:    notifier,
+			SnoozeKey:   snoozeKey,
+		}, log).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -99,4 +121,18 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// deriveSnoozeKey keeps the feature working with zero extra configuration:
+// without an explicit secret the enrollment token is hashed into one. With
+// neither set, snooze links are simply not generated.
+func deriveSnoozeKey(secret, enrollToken string) []byte {
+	if secret != "" {
+		return []byte(secret)
+	}
+	if enrollToken != "" {
+		sum := sha256.Sum256([]byte("beacon-snooze:" + enrollToken))
+		return sum[:]
+	}
+	return nil
 }

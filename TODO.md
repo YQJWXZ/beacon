@@ -87,17 +87,21 @@ M6 及以后不属于 MVP。
 
 ## M3 · 告警（2 天）
 
-- [ ] **T-301** vmalert 规则集：MVP 子集（规则 1–17、21–24、29–31）
+> 状态：已完成（2026-11-11）。规则先用 `vmalert -dryRun` 校验，Alertmanager 配置用 `amtool check-config` 校验。
+> 已落地的规则覆盖：主机心跳/磁盘/inode/只读/内存/OOM/swap/CPU/steal/conntrack/重传、防火墙失效/默认放行/高危规则/规则变更/IPv6、端口新增/绑定扩大/意外暴露。
+> 依赖 M4 指标（扫描、爆破、出站突增）和尚未采集的指标（时间漂移、服务状态、authorized_keys）的规则暂不写入，避免"永远不触发"的死规则。
+
+- [x] **T-301** vmalert 规则集：MVP 子集（规则 1–17、21–24、29–31）
   - Done when：`vmalert -dryRun` 全部解析通过，无未定义指标
-- [ ] **T-302** Alertmanager 配置：route / group / inhibit（主机离线抑制其余）
+- [x] **T-302** Alertmanager 配置：route / group / inhibit（主机离线抑制其余）
   - Done when：主机离线时，其上的磁盘/CPU 告警被抑制且不出现在通知里
-- [ ] **T-303** 飞书适配：`/hooks/alert` + 时间戳签名 + 卡片渲染
+- [x] **T-303** 飞书适配：`/hooks/alert` + 时间戳签名 + 卡片渲染
   - Done when：`beacon notify test feishu` 发出真实卡片，字段与 SPEC §7.3 一致
-- [ ] **T-304** 去重、合并、限流、重试队列
+- [x] **T-304** 去重、合并、限流、重试队列
   - Done when：同 `host+kind` 10 分钟内只发 1 条，并附"N 次"
-- [ ] **T-305** 卡片内"静默 1 小时"按钮 → Alertmanager silence API
+- [x] **T-305** 卡片内"静默 1 小时"按钮 → Alertmanager silence API
   - Done when：点击后 rule 在 AM 中静默，到期自动恢复
-- [ ] **T-306** 告警端到端演练
+- [x] **T-306** 告警端到端演练
   - Done when：改一条 nft 规则 → 60s 内飞书收到 P1 卡片，且 evidence 可读
 
 ## M4 · 流量（3 天）

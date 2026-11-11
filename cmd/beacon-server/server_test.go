@@ -40,7 +40,7 @@ func testServer(t *testing.T) (*httptest.Server, *httptest.Server, *atomic.Int64
 	}
 	t.Cleanup(func() { events.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(NewServer(store, events, vm.URL, "enroll-secret", log).Routes())
+	srv := httptest.NewServer(NewServer(store, events, ServerOptions{VMURL: vm.URL, EnrollToken: "enroll-secret"}, log).Routes())
 	t.Cleanup(srv.Close)
 	return srv, vm, &vmCalls
 }
@@ -143,7 +143,7 @@ func TestUpstreamFailurePropagates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(NewServer(store, mustEvents(t), vm.URL, "s", slog.New(slog.NewTextHandler(io.Discard, nil))).Routes())
+	srv := httptest.NewServer(NewServer(store, mustEvents(t), ServerOptions{VMURL: vm.URL, EnrollToken: "s"}, slog.New(slog.NewTextHandler(io.Discard, nil))).Routes())
 	defer srv.Close()
 
 	resp, _ := postRaw(t, srv.URL+"/api/v1/write", payloadFor(t, "h1"), map[string]string{
@@ -156,7 +156,7 @@ func TestUpstreamFailurePropagates(t *testing.T) {
 
 func TestEnrollmentDisabledWithoutToken(t *testing.T) {
 	store, _ := OpenStore(filepath.Join(t.TempDir(), "hosts.json"))
-	srv := httptest.NewServer(NewServer(store, mustEvents(t), "http://127.0.0.1:1", "", slog.New(slog.NewTextHandler(io.Discard, nil))).Routes())
+	srv := httptest.NewServer(NewServer(store, mustEvents(t), ServerOptions{VMURL: "http://127.0.0.1:1"}, slog.New(slog.NewTextHandler(io.Discard, nil))).Routes())
 	defer srv.Close()
 
 	resp, _ := postJSON(t, srv.URL+"/api/v1/enroll", enrollRequest{Token: "", Host: "h"}, nil)

@@ -17,18 +17,33 @@ import (
 type Server struct {
 	store       *Store
 	events      *EventStore
+	notifier    *Notifier
 	vmURL       string
 	enrollToken string
+	amURL       string
+	snoozeKey   []byte
 	log         *slog.Logger
 	client      *http.Client
 }
 
-func NewServer(store *Store, events *EventStore, vmURL, enrollToken string, log *slog.Logger) *Server {
+// ServerOptions groups the wiring needed by the HTTP layer.
+type ServerOptions struct {
+	VMURL       string
+	EnrollToken string
+	AMURL       string
+	Notifier    *Notifier
+	SnoozeKey   []byte
+}
+
+func NewServer(store *Store, events *EventStore, opts ServerOptions, log *slog.Logger) *Server {
 	return &Server{
 		store:       store,
 		events:      events,
-		vmURL:       vmURL,
-		enrollToken: enrollToken,
+		notifier:    opts.Notifier,
+		vmURL:       opts.VMURL,
+		enrollToken: opts.EnrollToken,
+		amURL:       opts.AMURL,
+		snoozeKey:   opts.SnoozeKey,
 		log:         log,
 		client:      &http.Client{Timeout: 30 * time.Second},
 	}
@@ -41,6 +56,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/events", s.handleEventPost)
 	mux.HandleFunc("GET /api/v1/events", s.handleEventQuery)
 	mux.HandleFunc("GET /api/v1/hosts", s.handleHosts)
+	mux.HandleFunc("POST /hooks/alert", s.handleAlert)
+	mux.HandleFunc("GET /snooze", s.handleSnooze)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	})

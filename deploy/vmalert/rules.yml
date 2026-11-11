@@ -1,17 +1,20 @@
+# M3 rule set: host health + firewall/port audit.
+# Every alert carries labels (host, alertname, severity, kind) and annotations
+# (summary, description, evidence). `kind` drives the query behind the
+# "view metrics" button; `evidence` is rendered verbatim in the Feishu card.
 groups:
-  - name: beacon-m1
+  - name: beacon-host
     interval: 15s
     rules:
-      # The heartbeat is the only reliable "host is alive" signal in a push
-      # model: if the agent dies, the last value simply stops advancing.
       - alert: BeaconAgentDown
         expr: time() - beacon_agent_heartbeat > 120
         labels:
           severity: P0
           kind: agent_down
         annotations:
-          summary: "{{ $labels.host }} stopped reporting"
-          description: "No heartbeat for more than 2 minutes."
+          summary: "{{ $labels.host }} 停止上报"
+          description: "心跳中断超过 2 分钟，可能是主机宕机、agent 崩溃或网络不通。"
+          evidence: '{"last_heartbeat": {{ $value }}}'
 
       - alert: BeaconDiskFull
         expr: beacon_disk_used_ratio > 0.95
@@ -20,4 +23,195 @@ groups:
           severity: P0
           kind: disk_full
         annotations:
-          summary: "{{ $labels.host }} filesystem {{ $labels.mount }} is {{ $value | humanizePercentage }} full"
+          summary: "{{ $labels.host }} 磁盘 {{ $labels.mount }} 已满"
+          description: "使用率 {{ $value | humanizePercentage }}，写入可能已经开始失败。"
+          evidence: '{"mount": "{{ $labels.mount }}", "used_ratio": {{ $value }}}'
+
+      - alert: BeaconInodeFull
+        expr: beacon_disk_inode_used_ratio > 0.95
+        for: 2m
+        labels:
+          severity: P0
+          kind: inode_full
+        annotations:
+          summary: "{{ $labels.host }} 的 {{ $labels.mount }} inode 耗尽"
+          description: "空间可能还有，但已经无法创建新文件。"
+          evidence: '{"mount": "{{ $labels.mount }}", "inode_ratio": {{ $value }}}'
+
+      - alert: BeaconFilesystemReadOnly
+        expr: beacon_disk_readonly == 1
+        for: 1m
+        labels:
+          severity: P0
+          kind: fs_readonly
+        annotations:
+          summary: "{{ $labels.host }} 的 {{ $labels.mount }} 变成只读"
+          description: "通常是文件系统错误后的自我保护，需要检查 dmesg。"
+          evidence: '{"mount": "{{ $labels.mount }}", "device": "{{ $labels.device }}"}'
+
+      - alert: BeaconMemoryPressure
+        expr: beacon_mem_used_ratio > 0.95
+        for: 5m
+        labels:
+          severity: P1
+          kind: mem_pressure
+        annotations:
+          summary: "{{ $labels.host }} 内存告急"
+          description: "可用内存低于 5%，随时可能触发 OOM。"
+          evidence: '{"used_ratio": {{ $value }}}'
+
+      - alert: BeaconOOMKill
+        expr: increase(beacon_mem_oom_kill_total[10m]) > 0
+        labels:
+          severity: P0
+          kind: oom
+        annotations:
+          summary: "{{ $labels.host }} 发生 OOM kill"
+          description: "有进程被内核杀死，业务可能已经受损。"
+          evidence: '{"kills_in_10m": {{ $value }}}'
+
+      - alert: BeaconSwapThrash
+        expr: rate(beacon_mem_swap_io_bytes_total[5m]) > 1e6
+        for: 5m
+        labels:
+          severity: P1
+          kind: swap
+        annotations:
+          summary: "{{ $labels.host }} swap 抖动"
+          description: "换页速率超过 1MB/s，性能会明显下降。"
+          evidence: '{"bytes_per_second": {{ $value }}}'
+
+      - alert: BeaconCPUHigh
+        expr: |
+          sum by (host) (
+            beacon_cpu_usage_ratio{mode=~"user|system|nice"}
+          ) > 0.90
+        for: 10m
+        labels:
+          severity: P1
+          kind: cpu
+        annotations:
+          summary: "{{ $labels.host }} CPU 持续高负载"
+          description: "user+system 超过 90% 已持续 10 分钟。"
+          evidence: '{"cpu_ratio": {{ $value }}}'
+
+      - alert: BeaconStealHigh
+        expr: beacon_cpu_steal_ratio > 0.20
+        for: 10m
+        labels:
+          severity: P1
+          kind: steal
+        annotations:
+          summary: "{{ $labels.host }} 被宿主机抢占 CPU"
+          description: "steal 超过 20%，云厂商邻居争抢，本机优化无效。"
+          evidence: '{"steal_ratio": {{ $value }}}'
+
+      - alert: BeaconConntrackNearFull
+        expr: beacon_conntrack_used_ratio > 0.85
+        for: 5m
+        labels:
+          severity: P1
+          kind: conntrack
+        annotations:
+          summary: "{{ $labels.host }} conntrack 表将满"
+          description: "打满后所有新连接都会失败，且日志里几乎没有线索。"
+          evidence: '{"used_ratio": {{ $value }}}'
+
+      - alert: BeaconTCPRetransHigh
+        expr: beacon_tcp_retrans_ratio > 0.05
+        for: 10m
+        labels:
+          severity: P1
+          kind: tcp
+        annotations:
+          summary: "{{ $labels.host }} TCP 重传率异常"
+          description: "重传率超过 5%，链路质量或对端有问题。"
+          evidence: '{"retrans_ratio": {{ $value }}}'
+
+  - name: beacon-audit
+    interval: 15s
+    rules:
+      - alert: BeaconFirewallInactive
+        expr: beacon_fw_service_active == 0 and beacon_fw_readable == 1
+        for: 2m
+        labels:
+          severity: P0
+          kind: fw_down
+        annotations:
+          summary: "{{ $labels.host }} 防火墙未生效"
+          description: "没有检测到任何生效的防火墙后端，主机可能完全暴露。"
+          evidence: '{"backend_active": {{ $value }}}'
+
+      - alert: BeaconFirewallPolicyOpen
+        expr: beacon_fw_policy_open == 1
+        for: 1m
+        labels:
+          severity: P0
+          kind: fw_policy
+        annotations:
+          summary: "{{ $labels.host }} 防火墙默认放行"
+          description: "input 链默认策略是 accept，规则表形同虚设。"
+          evidence: '{"chain": "{{ $labels.chain }}"}'
+
+      - alert: BeaconRiskyFirewallRule
+        expr: beacon_fw_risky_rules > 0
+        for: 5m
+        labels:
+          severity: P1
+          kind: fw_risky
+        annotations:
+          summary: "{{ $labels.host }} 存在高危放行规则"
+          description: "有危险端口对整个互联网开放。"
+          evidence: '{"risky_rules": {{ $value }}}'
+
+      - alert: BeaconFirewallChanged
+        expr: increase(beacon_fw_change_total{kind="total"}[5m]) > 0
+        labels:
+          severity: P1
+          kind: fw_change
+        annotations:
+          summary: "{{ $labels.host }} 防火墙规则发生变化"
+          description: "5 分钟内检测到规则变更，请确认是否为本人操作。"
+          evidence: '{"changes": {{ $value }}}'
+
+      - alert: BeaconNewPublicPort
+        expr: increase(beacon_port_new_total[5m]) > 0
+        labels:
+          severity: P0
+          kind: port_added
+        annotations:
+          summary: "{{ $labels.host }} 出现新的监听端口"
+          description: "新增端口，需要确认是否为预期变更。"
+          evidence: '{"new_ports": {{ $value }}}'
+
+      - alert: BeaconPortScopeWidened
+        expr: increase(beacon_port_widened_total[5m]) > 0
+        labels:
+          severity: P0
+          kind: port_widened
+        annotations:
+          summary: "{{ $labels.host }} 监听地址被扩大"
+          description: "有服务从 127.0.0.1 改成 0.0.0.0，典型的配置事故。"
+          evidence: '{"widened": {{ $value }}}'
+
+      - alert: BeaconUnexpectedExposure
+        expr: beacon_exposure_unexpected > 0
+        for: 1m
+        labels:
+          severity: P0
+          kind: exposure
+        annotations:
+          summary: "{{ $labels.host }} 存在意外对外暴露"
+          description: "监听端口实际可达且不在白名单内。"
+          evidence: '{"unexpected": {{ $value }}}'
+
+      - alert: BeaconIPv6Unfiltered
+        expr: beacon_fw_service_active == 1 and beacon_fw_ipv6_covered == 0
+        for: 10m
+        labels:
+          severity: P1
+          kind: fw_ipv6
+        annotations:
+          summary: "{{ $labels.host }} IPv6 未被防火墙覆盖"
+          description: "只配置了 IPv4 规则，IPv6 侧可能完全放通。"
+          evidence: '{"ipv6_covered": {{ $value }}}'

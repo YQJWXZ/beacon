@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"os"
 	"reflect"
 	"testing"
@@ -210,12 +211,12 @@ func TestCollectFirewallPrefersUFW(t *testing.T) {
 		"ufw status verbose":  readFixture(t, "ufw.txt"),
 		"nft -j list ruleset": readFixture(t, "nft.json"),
 	}
-	s, active, err := CollectFirewall(context.Background(), r)
+	s, status, err := CollectFirewall(context.Background(), r)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !active || s.Backend != BackendUFW {
-		t.Fatalf("backend = %s active=%v", s.Backend, active)
+	if !status.Active || s.Backend != BackendUFW {
+		t.Fatalf("backend = %s active=%v", s.Backend, status.Active)
 	}
 	if s.At.IsZero() {
 		t.Error("snapshot time not set")
@@ -223,12 +224,12 @@ func TestCollectFirewallPrefersUFW(t *testing.T) {
 }
 
 func TestCollectFirewallNoBackend(t *testing.T) {
-	s, active, err := CollectFirewall(context.Background(), fakeRunner{})
+	s, status, err := CollectFirewall(context.Background(), fakeRunner{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if active || s.Backend != BackendNone {
-		t.Fatalf("backend = %s active=%v", s.Backend, active)
+	if status.Active || s.Backend != BackendNone {
+		t.Fatalf("backend = %s active=%v", s.Backend, status.Active)
 	}
 }
 
@@ -269,5 +270,22 @@ func TestSplitAddrPortIPv6Zone(t *testing.T) {
 		if !ok || addr != c.addr || port != c.port {
 			t.Errorf("%s => %s:%d ok=%v", c.in, addr, port, ok)
 		}
+	}
+}
+
+type errRunner struct{ err error }
+
+func (e errRunner) Run(context.Context, string, ...string) ([]byte, error) { return nil, e.err }
+
+func TestCollectFirewallPermissionDeniedIsNotActive(t *testing.T) {
+	s, status, err := CollectFirewall(context.Background(), errRunner{err: errors.New("permission denied (you must be root)")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Active || status.Readable {
+		t.Fatalf("permission failure must be unreadable, got %+v", status)
+	}
+	if s.Backend != BackendNone {
+		t.Fatalf("backend = %s", s.Backend)
 	}
 }

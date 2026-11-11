@@ -29,6 +29,11 @@ services:
       BEACON_VM_URL: http://victoriametrics:8428/api/v1/write
       BEACON_ENROLL_TOKEN: ${BEACON_ENROLL_TOKEN:?set BEACON_ENROLL_TOKEN}
       BEACON_DATA_DIR: /data
+      BEACON_ALERTMANAGER_URL: http://alertmanager:9093
+      BEACON_VMUI_URL: http://127.0.0.1:8428
+      BEACON_PUBLIC_URL: ${BEACON_PUBLIC_URL:-http://127.0.0.1:8080}
+      BEACON_FEISHU_WEBHOOK: ${BEACON_FEISHU_WEBHOOK:-}
+      BEACON_FEISHU_SECRET: ${BEACON_FEISHU_SECRET:-}
     volumes:
       - server-data:/data
     ports:

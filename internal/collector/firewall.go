@@ -21,13 +21,14 @@ type Firewall struct {
 	mu         sync.RWMutex
 	snap       *audit.Snapshot
 	active     bool
+	readable   bool
 	risky      []audit.Rule
 	open       []string
 	lastChange time.Time
 	changes    map[string]uint64
 	loaded     bool
 
-	dRules, dRisky, dOpen, dIPv6, dActive, dChanges, dLastChange *prometheus.Desc
+	dRules, dRisky, dOpen, dIPv6, dActive, dReadable, dChanges, dLastChange *prometheus.Desc
 }
 
 func NewFirewall(run audit.Runner, host string, interval time.Duration, sink audit.Sink, statePath string) *Firewall {
@@ -40,6 +41,7 @@ func NewFirewall(run audit.Runner, host string, interval time.Duration, sink aud
 		dOpen:       b.desc("beacon_fw_policy_open", "Input chain whose default policy accepts (1=open).", "chain"),
 		dIPv6:       b.desc("beacon_fw_ipv6_covered", "IPv6 traffic is filtered by the ruleset."),
 		dActive:     b.desc("beacon_fw_service_active", "A firewall backend is active."),
+		dReadable:   b.desc("beacon_fw_readable", "The agent is allowed to read the firewall ruleset."),
 		dChanges:    b.desc("beacon_fw_change_total", "Ruleset change events by kind.", "kind"),
 		dLastChange: b.desc("beacon_fw_last_change_timestamp", "Unix time of the last detected ruleset change."),
 	}
@@ -49,7 +51,7 @@ func (f *Firewall) Name() string            { return "firewall" }
 func (f *Firewall) Interval() time.Duration { return f.interval }
 
 func (f *Firewall) Refresh(ctx context.Context) error {
-	snap, active, err := audit.CollectFirewall(ctx, f.run)
+	snap, status, err := audit.CollectFirewall(ctx, f.run)
 	if err != nil {
 		return err
 	}
@@ -61,7 +63,8 @@ func (f *Firewall) Refresh(ctx context.Context) error {
 		f.loaded = true
 	}
 	f.snap = snap
-	f.active = active
+	f.active = status.Active
+	f.readable = status.Readable
 	f.risky = audit.RiskyRules(snap)
 	f.open = audit.OpenPolicies(snap)
 
@@ -121,7 +124,7 @@ func isOpenPolicy(p string) bool {
 }
 
 func (f *Firewall) Describe(ch chan<- *prometheus.Desc) {
-	for _, d := range []*prometheus.Desc{f.dRules, f.dRisky, f.dOpen, f.dIPv6, f.dActive, f.dChanges, f.dLastChange} {
+	for _, d := range []*prometheus.Desc{f.dRules, f.dRisky, f.dOpen, f.dIPv6, f.dActive, f.dReadable, f.dChanges, f.dLastChange} {
 		ch <- d
 	}
 }
@@ -132,6 +135,7 @@ func (f *Firewall) Collect(ch chan<- prometheus.Metric) {
 	risky := f.risky
 	open := f.open
 	active := f.active
+	readable := f.readable
 	last := f.lastChange
 	changes := make(map[string]uint64, len(f.changes))
 	for k, v := range f.changes {
@@ -159,6 +163,7 @@ func (f *Firewall) Collect(ch chan<- prometheus.Metric) {
 		act = 1
 	}
 	ch <- prometheus.MustNewConstMetric(f.dActive, prometheus.GaugeValue, act)
+	ch <- prometheus.MustNewConstMetric(f.dReadable, prometheus.GaugeValue, boolToFloat(readable))
 	for kind, v := range changes {
 		ch <- prometheus.MustNewConstMetric(f.dChanges, prometheus.CounterValue, float64(v), kind)
 	}

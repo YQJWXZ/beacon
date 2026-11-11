@@ -46,7 +46,7 @@ func cmdAudit(args []string) error {
 }
 
 func auditFW(ctx context.Context, cfg *config.Config, r audit.Runner, asJSON bool) error {
-	snap, active, err := audit.CollectFirewall(ctx, r)
+	snap, status, err := audit.CollectFirewall(ctx, r)
 	if err != nil {
 		return err
 	}
@@ -58,7 +58,7 @@ func auditFW(ctx context.Context, cfg *config.Config, r audit.Runner, asJSON boo
 
 	if asJSON {
 		out := map[string]any{
-			"backend": snap.Backend, "active": active, "hash": snap.Hash,
+			"backend": snap.Backend, "active": status.Active, "readable": status.Readable, "hash": snap.Hash,
 			"rules": snap.Rules, "policy": snap.Policy,
 			"ipv6_covered":  snap.IPv6Covered,
 			"risky_rules":   audit.RiskyRules(snap),
@@ -68,7 +68,7 @@ func auditFW(ctx context.Context, cfg *config.Config, r audit.Runner, asJSON boo
 		return emitJSON(out)
 	}
 
-	fmt.Printf("backend:      %s (active=%v)\n", snap.Backend, active)
+	fmt.Printf("backend:      %s (active=%v readable=%v)\n", snap.Backend, status.Active, status.Readable)
 	fmt.Printf("ruleset hash: %s\n", snap.Hash)
 	fmt.Printf("ipv6 covered: %v\n", snap.IPv6Covered)
 	counts := snap.CountByTable()

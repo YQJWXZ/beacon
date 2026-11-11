@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yqjwxz/beacon/internal/config"
 )
@@ -85,5 +86,35 @@ func TestMetricNamesFollowConvention(t *testing.T) {
 	}
 	if series > 800 {
 		t.Fatalf("series budget exceeded: %d > 800", series)
+	}
+}
+
+func TestAgentWithAuditRegistersCleanly(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Audit.Enabled = true
+	cfg.Agent.StateDir = t.TempDir()
+	cfg.Audit.Interval = config.Duration(0)
+	// Interval 0 is rejected by Validate; use a real one instead.
+	cfg.Audit.Interval = config.Duration(60 * time.Second)
+
+	a, err := New(cfg, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Probe(context.Background())
+
+	var buf bytes.Buffer
+	if err := a.WriteMetrics(context.Background(), &buf, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"beacon_fw_service_active",
+		"beacon_fw_readable",
+		"beacon_port_listen_info",
+		"beacon_exposure_unexpected",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("missing %s", want)
+		}
 	}
 }

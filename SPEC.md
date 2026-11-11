@@ -284,6 +284,7 @@ beacon_<domain>_<name>_<unit>{host, ...}
 - **M0**：`cpu` / `mem` / `net` / `disk` 四个采集器、能力探测、本地 `/metrics`
 - **M1**：WAL 存储转发、`remote_write` 编码、Transport（direct/system/unix/proxy）、主机注册、心跳、`beacon-server` 网关、systemd 与 compose
 - **M2**：防火墙四后端解析（nft / iptables / ufw / firewalld）、规则 diff、危险规则识别、端口快照与差分、暴露面模型、事件入库
+- **M3**：vmalert 规则集、Alertmanager 路由与抑制、飞书卡片（签名/证据/静默按钮）、去重限流
 
 与下文表格的已知差异：
 
@@ -590,7 +591,7 @@ L ∩ S - R        → 以为开了其实不通（业务故障的常见原因）
 
 ### 7.3 聚合与路由
 
-MVP 只实现飞书，其余渠道走同一套抽象，后续加 adapter 即可。
+M3 已实现：`vmalert → Alertmanager → beacon-server /hooks/alert → 飞书卡片`。
 
 ```
 vmalert --alert--> Alertmanager --webhook--> beacon-server /hooks/alert --card--> 飞书
@@ -632,6 +633,12 @@ vmalert --alert--> Alertmanager --webhook--> beacon-server /hooks/alert --card--
 ```
 
 其余渠道（邮件/企业微信/Telegram）保留 `Notifier` 接口，MVP 不实现。
+
+实现细节：
+
+- **去重**：同一 `groupKey` 10 分钟内只发一次；全局令牌桶 20 条/分钟，超限直接丢弃并记日志
+- **静默按钮**：卡片里的链接自带 `host|alertname|exp` 的 HMAC 签名，`GET /snooze` 校验后调用 Alertmanager `/api/v2/silences`，最长 1 小时，到期自动恢复；链接 24 小时后失效
+- **签名**：`base64(HMAC-SHA256(key=timestamp+"\n"+secret, data=""))`，与飞书自定义机器人文档一致
 
 ```
 group_by: [host, kind]

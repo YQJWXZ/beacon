@@ -52,14 +52,33 @@ curl -H "Authorization: Bearer $BEACON_ENROLL_TOKEN" \
 
 断网演练：`./scripts/netloss-test.sh`（在中心侧运行，见脚本头部说明）。
 
+### 告警（M3）
+
+飞书自定义机器人即可，不需要企业自建应用：
+
+```bash
+export BEACON_FEISHU_WEBHOOK='https://open.feishu.cn/open-apis/bot/v2/hook/xxx'
+export BEACON_FEISHU_SECRET='签名密钥'            # 可选，开启后按官方算法签名
+export BEACON_PUBLIC_URL='http://<center>:8080'  # 卡片按钮要能从浏览器打开
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+链路：`vmalert → Alertmanager → beacon-server /hooks/alert → 飞书卡片`。
+
+卡片包含：级别色条、主机、摘要、证据（JSON）、开始时间，以及两个按钮——
+「查看曲线」打开预置好查询的 vmui，「静默 1 小时」调用 Alertmanager API 创建 silence。
+
 ## 状态
 
 M0 完成：CPU/内存/网络/磁盘采集、能力探测、本地 `/metrics`。
 M1 完成：传输抽象、WAL 存储转发、注册凭证、`beacon-server` 网关、systemd/安装脚本、中心 compose。
 M2 完成：防火墙四后端解析与 diff、端口审计、暴露面模型、事件入库（SQLite）、`beacon audit` CLI。
+M3 完成：vmalert 规则集、Alertmanager 路由/抑制、飞书卡片、去重限流、签名静默链接。
 
-实测：本机 60 秒断网缓冲 51 KB，恢复后 3 秒排空，断网窗口内的心跳样本被完整补传。
-启动一个公网监听后 8 秒内产生 `port_added` P0 事件，并出现在中心事件库。
+实测：
+- 断网 60 秒缓冲 51 KB，恢复后 3 秒排空，窗口内心跳样本完整补传
+- 新监听端口 8 秒内产生 `port_added` P0 事件，并出现在中心事件库
+- 端口告警经 vmalert/Alertmanager 送达飞书卡片；点击「静默 1 小时」后告警变为 suppressed
 
 ## 文档
 

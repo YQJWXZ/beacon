@@ -1,12 +1,28 @@
-# M1 keeps routing minimal on purpose: no receiver is wired yet, so a broken
-# alerting path is obvious instead of silently dropping alerts.
-# M3 replaces `noop` with a webhook to beacon-server /hooks/alert (Feishu).
+global:
+  resolve_timeout: 5m
+
+# One receiver: the Feishu adapter inside beacon-server. Grouping keeps cards
+# readable; the adapter adds its own dedupe and rate limit on top.
 route:
-  receiver: noop
-  group_by: [host, kind]
-  group_wait: 30s
-  group_interval: 5m
+  receiver: feishu
+  group_by: [host, alertname]
+  group_wait: 20s
+  group_interval: 2m
   repeat_interval: 4h
+  routes:
+    - matchers: ['severity="P0"']
+      receiver: feishu
+      repeat_interval: 1h
 
 receivers:
-  - name: noop
+  - name: feishu
+    webhook_configs:
+      - url: http://beacon-server:8080/hooks/alert
+        send_resolved: true
+        max_alerts: 10
+
+# A dead host explains every other alert it produces. Silence them.
+inhibit_rules:
+  - source_matchers: ['alertname="BeaconAgentDown"']
+    target_matchers: ['severity=~"P0|P1|P2"']
+    equal: [host]

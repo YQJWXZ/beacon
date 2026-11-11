@@ -10,36 +10,43 @@ import (
 	"time"
 )
 
+// FirewallStatus separates "there is no firewall" from "we are not allowed to
+// look". Only the first one is an alert.
+type FirewallStatus struct {
+	Active   bool
+	Readable bool
+}
+
 // CollectFirewall detects the active backend and returns its snapshot.
 // Detection prefers the most human-readable source: ufw, then nftables, then
 // iptables, then firewalld. A missing backend is not an error, it is "none".
-func CollectFirewall(ctx context.Context, r Runner) (*Snapshot, bool, error) {
+func CollectFirewall(ctx context.Context, r Runner) (*Snapshot, FirewallStatus, error) {
 	if out, err := r.Run(ctx, "ufw", "status", "verbose"); err == nil {
 		if strings.Contains(string(out), "Status: active") {
 			s, perr := ParseUFW(out)
 			if perr != nil {
-				return nil, false, perr
+				return nil, FirewallStatus{}, perr
 			}
 			s.Raw = string(out)
 			s.At = time.Now()
-			return s, true, nil
+			return s, FirewallStatus{Active: true, Readable: true}, nil
 		}
 	}
 
 	if out, err := r.Run(ctx, "nft", "-j", "list", "ruleset"); err == nil && len(out) > 32 {
 		s, perr := ParseNFT(out)
 		if perr != nil {
-			return nil, false, perr
+			return nil, FirewallStatus{}, perr
 		}
 		s.Raw = string(out)
 		s.At = time.Now()
-		return s, true, nil
+		return s, FirewallStatus{Active: true, Readable: true}, nil
 	}
 
 	if out, err := r.Run(ctx, "iptables-save"); err == nil {
 		s, perr := ParseIptables(out, "ip")
 		if perr != nil {
-			return nil, false, perr
+			return nil, FirewallStatus{}, perr
 		}
 		if v6, err := r.Run(ctx, "ip6tables-save"); err == nil {
 			s6, _ := ParseIptables(v6, "ip6")
@@ -51,20 +58,35 @@ func CollectFirewall(ctx context.Context, r Runner) (*Snapshot, bool, error) {
 		s.Raw = string(out)
 		s.At = time.Now()
 		s.Finalize(s.At)
-		return s, len(s.Rules) > 0, nil
+		return s, FirewallStatus{Active: len(s.Rules) > 0, Readable: true}, nil
 	}
 
 	if out, err := r.Run(ctx, "firewall-cmd", "--list-all"); err == nil && len(strings.TrimSpace(string(out))) > 0 {
 		s, perr := ParseFirewalld(out)
 		if perr != nil {
-			return nil, false, perr
+			return nil, FirewallStatus{}, perr
 		}
 		s.Raw = string(out)
 		s.At = time.Now()
-		return s, true, nil
+		return s, FirewallStatus{Active: true, Readable: true}, nil
 	}
 
-	return &Snapshot{Backend: BackendNone, Policy: map[string]string{}, At: time.Now()}, false, nil
+	readable := true
+	if _, err := r.Run(ctx, "nft", "-j", "list", "ruleset"); err != nil && isPermissionErr(err) {
+		if _, err2 := r.Run(ctx, "iptables-save"); err2 != nil && isPermissionErr(err2) {
+			readable = false
+		}
+	}
+	return &Snapshot{Backend: BackendNone, Policy: map[string]string{}, At: time.Now()}, FirewallStatus{Readable: readable}, nil
+}
+
+// isPermissionErr distinguishes "cannot look" from "nothing configured".
+func isPermissionErr(err error) bool {
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "permission") ||
+		strings.Contains(s, "not permitted") ||
+		strings.Contains(s, "must be root") ||
+		strings.Contains(s, "operation not permitted")
 }
 
 // CollectPorts returns listening sockets.
